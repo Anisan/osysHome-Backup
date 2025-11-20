@@ -1,10 +1,11 @@
-import subprocess  
-import os  
-from urllib.parse import urlparse  
-  
-class PostgreSQLHandler:  
-    def __init__(self, database_uri):  
-        self.db_type = 'postgresql'  
+import subprocess
+import os
+from urllib.parse import urlparse
+
+class PostgreSQLHandler:
+    def __init__(self, database_uri, logger):
+        self.db_type = 'postgresql'
+        self.logger = logger
         self.parse_uri(database_uri)  
           
     def parse_uri(self, uri):  
@@ -22,7 +23,9 @@ class PostgreSQLHandler:
           
         env = os.environ.copy()  
         if self.password:  
-            env['PGPASSWORD'] = self.password  
+            env['PGPASSWORD'] = self.password
+        # Устанавливаем UTF-8 кодировку для клиента PostgreSQL
+        env['PGCLIENTENCODING'] = 'UTF8'
               
         cmd = [  
             'pg_dump',  
@@ -33,8 +36,82 @@ class PostgreSQLHandler:
             self.database  
         ]  
           
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True)  
-        if result.returncode == 0:  
-            return backup_file  
-        else:  
-            raise Exception(f"PostgreSQL backup failed: {result.stderr}")
+        self.logger.info("PostgreSQLHandler: running pg_dump for database '%s'", self.database)
+        result = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False,
+        ) 
+        if result.returncode == 0:
+            self.logger.debug("PostgreSQLHandler: backup created at %s", backup_file)
+            return backup_file
+        else:
+            self.logger.error("PostgreSQLHandler: backup failed: %s", result.stderr)
+            raise RuntimeError(f"PostgreSQL backup failed: {result.stderr}")
+    
+    def restore_backup(self, backup_path):
+        """Восстановление из резервной копии PostgreSQL"""
+        backup_file = os.path.join(backup_path, 'database.sql')
+        if not os.path.exists(backup_file):
+            raise FileNotFoundError(f"Backup file not found: {backup_file}")
+        
+        env = os.environ.copy()
+        if self.password:
+            env['PGPASSWORD'] = self.password
+        # Устанавливаем UTF-8 кодировку для клиента PostgreSQL
+        env['PGCLIENTENCODING'] = 'UTF8'
+        
+        # Сначала очищаем базу данных (удаляем все объекты)
+        # Используем psql для выполнения SQL команд
+        cmd_drop = [
+            'psql',
+            '-h', self.host,
+            '-p', str(self.port),
+            '-U', self.username,
+            '-d', self.database,
+            '-c', 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+        ]
+        
+        self.logger.debug("PostgreSQLHandler: dropping schema public before restore")
+        result_drop = subprocess.run(
+            cmd_drop,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False
+        )
+        if result_drop.returncode != 0:
+            self.logger.warning("PostgreSQLHandler: failed to drop schema public: %s", result_drop.stderr)
+        
+        # Восстанавливаем из дампа
+        cmd_restore = [
+            'psql',
+            '-h', self.host,
+            '-p', str(self.port),
+            '-U', self.username,
+            '-d', self.database,
+            '-f', backup_file
+        ]
+        
+        self.logger.info("PostgreSQLHandler: restoring database '%s' from %s", self.database, backup_file)
+        result_restore = subprocess.run(
+            cmd_restore,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False,
+        )
+        if result_restore.returncode == 0:
+            self.logger.debug("PostgreSQLHandler: restore completed successfully")
+            return True
+        else:
+            self.logger.error("PostgreSQLHandler: restore failed: %s", result_restore.stderr)
+            raise RuntimeError(f"PostgreSQL restore failed: {result_restore.stderr}")

@@ -1,6 +1,6 @@
 import os  
 import shutil  
-import json  
+import json
 from datetime import datetime  
   
 class LocalStorage:  
@@ -21,7 +21,7 @@ class LocalStorage:
                 metadata_file = os.path.join(backup_path, 'metadata.json')  
                 if os.path.exists(metadata_file):  
                     try:  
-                        with open(metadata_file, 'r') as f:  
+                        with open(metadata_file, 'r', encoding='utf-8') as f:  
                             metadata = json.load(f)  
                             metadata['size'] = self._get_backup_size(backup_path)  
                             metadata['type'] = 'directory'  
@@ -36,7 +36,27 @@ class LocalStorage:
                     'size': stat.st_size,  
                     'type': 'archive',  
                     'encrypted': item.endswith('.encrypted.tar.gz')  
-                }  
+                }
+                
+                # Читаем только из внешнего .metadata.json (быстро)
+                # Если файла нет - метаданные содержимого не показываем
+                external_metadata_path = backup_path + '.metadata.json'
+                if os.path.exists(external_metadata_path):
+                    try:
+                        with open(external_metadata_path, 'r', encoding='utf-8') as f:
+                            archive_metadata = json.load(f)
+                            metadata.update({
+                                'database_type': archive_metadata.get('database_type'),
+                                'includes_database': archive_metadata.get('includes_database', True),
+                                'includes_cache': archive_metadata.get('includes_cache', False),
+                                'includes_files': archive_metadata.get('includes_files', False),
+                                'includes_user_files': archive_metadata.get('includes_user_files', False),
+                                'backup_resources': archive_metadata.get('backup_resources', []),
+                                'osyshome_version': archive_metadata.get('osyshome_version')
+                            })
+                    except Exception:
+                        pass
+                
                 backups.append(metadata)  
                   
         return sorted(backups, key=lambda x: x.get('created_at', ''), reverse=True)  
@@ -49,7 +69,14 @@ class LocalStorage:
             if os.path.isdir(backup_path):  
                 shutil.rmtree(backup_path)  
             else:  
-                os.remove(backup_path)  
+                os.remove(backup_path)
+                # Также удаляем внешний .metadata.json если существует
+                external_metadata = backup_path + '.metadata.json'
+                if os.path.exists(external_metadata):
+                    try:
+                        os.remove(external_metadata)
+                    except Exception:
+                        pass  # Не критично, если не удалось удалить
             return True  
         return False  
           
@@ -66,7 +93,7 @@ class LocalStorage:
             return os.path.getsize(backup_path)  
               
         total_size = 0  
-        for dirpath, dirnames, filenames in os.walk(backup_path):  
+        for dirpath, _dirnames, filenames in os.walk(backup_path):  
             for filename in filenames:  
                 filepath = os.path.join(dirpath, filename)  
                 if os.path.exists(filepath):  
@@ -88,7 +115,7 @@ class LocalStorage:
         if os.path.isdir(backup_path):  
             metadata_file = os.path.join(backup_path, 'metadata.json')  
             if os.path.exists(metadata_file):  
-                with open(metadata_file, 'r') as f:  
+                with open(metadata_file, 'r', encoding='utf-8') as f:  
                     return json.load(f)  
           
         # Для архивов возвращаем базовую информацию  

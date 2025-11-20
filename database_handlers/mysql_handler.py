@@ -1,10 +1,11 @@
-import subprocess  
-import os  
-from urllib.parse import urlparse  
-  
-class MySQLHandler:  
-    def __init__(self, database_uri):  
-        self.db_type = 'mysql'  
+import subprocess
+import os
+from urllib.parse import urlparse
+
+class MySQLHandler:
+    def __init__(self, database_uri, logger):
+        self.db_type = 'mysql'
+        self.logger = logger
         self.parse_uri(database_uri)  
           
     def parse_uri(self, uri):  
@@ -34,10 +35,57 @@ class MySQLHandler:
         if self.password:  
             cmd.insert(-1, f'--password={self.password}')  
               
-        with open(backup_file, 'w') as f:  
-            result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, text=True)  
+        self.logger.info("MySQLHandler: running mysqldump for database '%s'", self.database)
+        with open(backup_file, 'w', encoding='utf-8') as f:  
+            result = subprocess.run(
+                cmd,
+                stdout=f,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                check=False
+            )  
               
         if result.returncode == 0:  
+            self.logger.debug("MySQLHandler: backup created at %s", backup_file)
             return backup_file  
         else:  
-            raise Exception(f"MySQL backup failed: {result.stderr}")
+            self.logger.error("MySQLHandler: backup failed: %s", result.stderr)
+            raise RuntimeError(f"MySQL backup failed: {result.stderr}")
+    
+    def restore_backup(self, backup_path):
+        """Восстановление из резервной копии MySQL"""
+        backup_file = os.path.join(backup_path, 'database.sql')
+        if not os.path.exists(backup_file):
+            raise FileNotFoundError(f"Backup file not found: {backup_file}")
+        
+        cmd = [
+            'mysql',
+            f'--host={self.host}',
+            f'--port={self.port}',
+            f'--user={self.username}',
+            self.database
+        ]
+        
+        if self.password:
+            cmd.insert(-1, f'--password={self.password}')
+        
+        self.logger.info("MySQLHandler: restoring database '%s' from %s", self.database, backup_file)
+        with open(backup_file, 'r', encoding='utf-8') as f:
+            result = subprocess.run(
+                cmd,
+                stdin=f,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                check=False
+            )
+        
+        if result.returncode == 0:
+            self.logger.debug("MySQLHandler: restore completed successfully")
+            return True
+        else:
+            self.logger.error("MySQLHandler: restore failed: %s", result.stderr)
+            raise RuntimeError(f"MySQL restore failed: {result.stderr}")
