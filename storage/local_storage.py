@@ -35,7 +35,7 @@ class LocalStorage:
                     'created_at': datetime.fromtimestamp(stat.st_mtime).isoformat(),  
                     'size': stat.st_size,  
                     'type': 'archive',  
-                    'encrypted': item.endswith('.encrypted.tar.gz')  
+                    'encrypted': item.endswith('.encrypted.tar.gz')
                 }
                 
                 # Читаем только из внешнего .metadata.json (быстро)
@@ -70,13 +70,13 @@ class LocalStorage:
                 shutil.rmtree(backup_path)  
             else:  
                 os.remove(backup_path)
-                # Также удаляем внешний .metadata.json если существует
+                # Также удаляем внешний файл метаданных
                 external_metadata = backup_path + '.metadata.json'
                 if os.path.exists(external_metadata):
                     try:
                         os.remove(external_metadata)
                     except Exception:
-                        pass  # Не критично, если не удалось удалить
+                        pass
             return True  
         return False  
           

@@ -5,10 +5,65 @@
 {% block module %}
 <div class="container-fluid">  
     <div class="row">  
-        <div class="col-md-6">  
+        <div class="col-md-6">
+            <!-- Карточка автоматического резервного копирования -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5>{{ _('Automatic Backup') }}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="autoBackupEnabled" 
+                                   {% if auto_backup_enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="autoBackupEnabled">
+                                {{ _('Enable automatic backup') }}
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="autoBackupSettings" {% if not auto_backup_enabled %}style="display: none;"{% endif %}>
+                        <div class="mb-3">
+                            <label for="autoBackupCrontab" class="form-label">
+                                {{ _('Schedule (cron format)') }}
+                                <a href="https://crontab.guru/" target="_blank" class="text-decoration-none">
+                                    <i class="fas fa-question-circle"></i>
+                                </a>
+                            </label>
+                            <input type="text" class="form-control font-monospace" id="autoBackupCrontab" 
+                                   value="{{ auto_backup_crontab }}" placeholder="0 2 * * *">
+                            <div class="form-text">
+                                {{ _('Default: 0 2 * * * (daily at 2:00 AM)') }}
+                            </div>
+                        </div>
+                        
+                        <div id="nextRunInfo" class="alert alert-info mb-3" style="display: none;">
+                            <i class="fas fa-clock"></i> <strong>{{ _('Next run') }}:</strong> <span id="nextRunTime"></span>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <small class="text-muted">
+                                <strong>{{ _('Common examples') }}:</strong><br>
+                                <code>0 2 * * *</code> - {{ _('Every day at 2:00 AM') }}<br>
+                                <code>0 */6 * * *</code> - {{ _('Every 6 hours') }}<br>
+                                <code>0 0 * * 0</code> - {{ _('Every Sunday at midnight') }}<br>
+                                <code>0 3 */3 * *</code> - {{ _('Every 3 days at 3:00 AM') }}
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary" id="saveAutoBackupBtn">
+                        <i class="fas fa-save"></i> {{ _('Save Schedule') }}
+                    </button>
+                </div>
+            </div>
+            
             <div class="card">  
-                <div class="card-header">  
-                    <h5>{{ _('Create Backup') }}</h5>  
+                <div class="card-header d-flex justify-content-between align-items-center">  
+                    <h5 class="mb-0">{{ _('Create Backup') }}</h5>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                        <i class="fas fa-cog"></i> {{ _('Settings') }}
+                    </button>
                 </div>  
                 <div class="card-body">  
                     <form id="createBackupForm" method="POST">  
@@ -206,6 +261,176 @@
     
 </div>  
 
+<!-- Modal для настроек модуля -->
+<div class="modal fade" id="settingsModal" tabindex="-1" role="dialog" aria-labelledby="settingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="settingsModalLabel">{{ _('Backup Settings') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="settingsForm">
+                    <input type="hidden" name="action" value="save_settings">
+                    
+                    <h6 class="mb-3">{{ _('Database Tools Paths') }}</h6>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> {{ _('Leave empty to use default paths (from system PATH)') }}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="alert alert-primary">
+                            <i class="fas fa-database"></i> <strong>{{ _('Current database type') }}:</strong> 
+                            {% if db_type == 'postgresql' %}
+                                PostgreSQL
+                            {% elif db_type == 'mysql' %}
+                                MySQL
+                            {% elif db_type == 'sqlite' %}
+                                SQLite ({{ _('no external tools required') }})
+                            {% else %}
+                                {{ db_type|upper }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    {% if db_type == 'postgresql' %}
+                    <div class="row" id="postgresql_tools">
+                        <div class="col-md-6 mb-3">
+                            <label for="pg_dump_path" class="form-label">{{ _('PostgreSQL pg_dump path') }}</label>
+                            <input type="text" name="pg_dump_path" id="pg_dump_path" class="form-control" 
+                                   value="{{ settings.pg_dump_path or '' }}" placeholder="pg_dump">
+                            <div class="form-text">{{ _('Path to pg_dump utility') }}</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="psql_path" class="form-label">{{ _('PostgreSQL psql path') }}</label>
+                            <input type="text" name="psql_path" id="psql_path" class="form-control" 
+                                   value="{{ settings.psql_path or '' }}" placeholder="psql">
+                            <div class="form-text">{{ _('Path to psql utility') }}</div>
+                        </div>
+                    </div>
+                    {% elif db_type == 'mysql' %}
+                    <div class="row" id="mysql_tools">
+                        <div class="col-md-6 mb-3">
+                            <label for="mysqldump_path" class="form-label">{{ _('MySQL mysqldump path') }}</label>
+                            <input type="text" name="mysqldump_path" id="mysqldump_path" class="form-control" 
+                                   value="{{ settings.mysqldump_path or '' }}" placeholder="mysqldump">
+                            <div class="form-text">{{ _('Path to mysqldump utility') }}</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="mysql_path" class="form-label">{{ _('MySQL mysql path') }}</label>
+                            <input type="text" name="mysql_path" id="mysql_path" class="form-control" 
+                                   value="{{ settings.mysql_path or '' }}" placeholder="mysql">
+                            <div class="form-text">{{ _('Path to mysql utility') }}</div>
+                        </div>
+                    </div>
+                    {% elif db_type == 'sqlite' %}
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> {{ _('SQLite does not require external backup tools.') }}
+                    </div>
+                    {% endif %}
+                    
+                    <hr class="my-4">
+                    
+                    <h6 class="mb-3">{{ _('Encryption Settings') }}</h6>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> {{ _('Encryption protects your backups with a password') }}
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input type="checkbox" name="encrypt_backups" id="settings_encrypt_backups" class="form-check-input"
+                               {% if settings.encrypt_backups %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_encrypt_backups">
+                            <strong>{{ _('Enable backup encryption') }}</strong>
+                        </label>
+                        <div class="form-text">
+                            {{ _('Encrypted backups will have .encrypted.tar.gz extension') }}
+                        </div>
+                    </div>
+                    
+                    <div id="encryptionKeySettings" {% if not settings.encrypt_backups %}style="display: none;"{% endif %}>
+                        <div class="mb-3">
+                            <label for="encryption_key" class="form-label">
+                                {{ _('Encryption password/key') }}
+                                <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <input type="password" name="encryption_key" id="encryption_key" class="form-control" 
+                                       value="{{ settings.encryption_key or '' }}" 
+                                       placeholder="{{ _('Enter strong password') }}">
+                                <button class="btn btn-outline-secondary" type="button" id="toggleEncryptionKey">
+                                    <i class="fas fa-eye" id="toggleEncryptionKeyIcon"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                <i class="fas fa-exclamation-triangle text-warning"></i> 
+                                {{ _('IMPORTANT: Save this password securely! Without it, you will not be able to restore encrypted backups.') }}
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-warning" role="alert">
+                            <strong><i class="fas fa-exclamation-triangle"></i> {{ _('Warning') }}:</strong><br>
+                            {{ _('If you lose the encryption password, your backups will be permanently inaccessible. Make sure to store it in a safe place.') }}
+                        </div>
+                    </div>
+                    
+                    <hr class="my-4">
+                    
+                    <h6 class="mb-3">{{ _('Default Backup Parameters') }}</h6>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> {{ _('These settings will be used as default values when creating a backup') }}
+                    </div>
+                    
+                    <div class="form-check mb-2">
+                        <input type="checkbox" name="backup_database" id="settings_backup_database" class="form-check-input"
+                               {% if settings.backup_database %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_backup_database">
+                            {{ _('Include database by default') }}
+                        </label>
+                    </div>
+                    
+                    <div class="form-check mb-2">
+                        <input type="checkbox" name="backup_cache" id="settings_backup_cache" class="form-check-input"
+                               {% if settings.backup_cache %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_backup_cache">
+                            {{ _('Include cache by default') }}
+                        </label>
+                    </div>
+                    
+                    <div class="form-check mb-2">
+                        <input type="checkbox" name="backup_plugins" id="settings_backup_plugins" class="form-check-input"
+                               {% if settings.backup_plugins %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_backup_plugins">
+                            {{ _('Include plugins by default') }}
+                        </label>
+                    </div>
+                    
+                    <div class="form-check mb-2">
+                        <input type="checkbox" name="backup_user_files" id="settings_backup_user_files" class="form-check-input"
+                               {% if settings.backup_user_files %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_backup_user_files">
+                            {{ _('Include user files by default') }}
+                        </label>
+                    </div>
+                    
+                    <div class="form-check mb-2">
+                        <input type="checkbox" name="backup_app_core" id="settings_backup_app_core" class="form-check-input"
+                               {% if settings.backup_app_core %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_backup_app_core">
+                            {{ _('Include app core by default') }}
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="saveSettingsBtn">
+                    <i class="fas fa-save"></i> {{ _('Save Settings') }}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal для отображения процесса создания/восстановления резервной копии -->
 <div class="modal fade" id="backupProgressModal" tabindex="-1" role="dialog" aria-labelledby="backupProgressModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered modal-xl" role="document">
@@ -249,6 +474,85 @@ $(document).ready(function() {
     const modal = new bootstrap.Modal(document.getElementById('backupProgressModal'));
     let currentBackupName = null;
     let backupComplete = false;
+    
+    // Управление автоматическим резервным копированием
+    $('#autoBackupEnabled').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('#autoBackupSettings').slideDown();
+        } else {
+            $('#autoBackupSettings').slideUp();
+        }
+    });
+    
+    // Сохранение настроек автоматического резервного копирования
+    $('#saveAutoBackupBtn').on('click', function() {
+        const $btn = $(this);
+        const originalHtml = $btn.html();
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> {{ _("Saving...") }}');
+        
+        const enabled = $('#autoBackupEnabled').is(':checked');
+        const crontab = $('#autoBackupCrontab').val();
+        
+        $.ajax({
+            url: window.location.pathname,
+            method: 'POST',
+            data: {
+                action: 'save_auto_backup_settings',
+                enabled: enabled,
+                crontab: crontab
+            },
+            success: function(response) {
+                if (response.success) {
+                    $btn.html('<i class="fas fa-check"></i> {{ _("Saved!") }}');
+                    setTimeout(function() {
+                        $btn.html(originalHtml).prop('disabled', false);
+                        // Обновляем информацию о следующем запуске
+                        loadNextRunInfo();
+                    }, 1000);
+                } else {
+                    alert('{{ _("Error saving auto backup settings") }}: ' + (response.error || '{{ _("Unknown error") }}'));
+                    $btn.html(originalHtml).prop('disabled', false);
+                }
+            },
+            error: function(xhr, status, error) {
+                let errorMessage = '{{ _("Error saving auto backup settings") }}';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage = xhr.responseJSON.error;
+                } else if (error) {
+                    errorMessage = error;
+                }
+                alert(errorMessage);
+                $btn.html(originalHtml).prop('disabled', false);
+            }
+        });
+    });
+    
+    // Загрузка информации о следующем запуске
+    function loadNextRunInfo() {
+        if (!$('#autoBackupEnabled').is(':checked')) {
+            $('#nextRunInfo').hide();
+            return;
+        }
+        
+        $.ajax({
+            url: window.location.pathname,
+            method: 'POST',
+            data: {
+                action: 'get_auto_backup_settings'
+            },
+            success: function(response) {
+                if (response.success && response.next_run) {
+                    $('#nextRunTime').text(response.next_run);
+                    $('#nextRunInfo').show();
+                } else {
+                    $('#nextRunInfo').hide();
+                }
+            }
+        });
+    }
+    
+    // Загружаем информацию о следующем запуске при загрузке страницы
+    loadNextRunInfo();
     
     // Подписка на события WebSocket от плагина Backup
     if (typeof socket !== 'undefined') {
@@ -376,6 +680,94 @@ $(document).ready(function() {
                     errorMessage = error;
                 }
                 showError(errorMessage);
+            }
+        });
+    });
+    
+    // Управление отображением настроек шифрования
+    $('#settings_encrypt_backups').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('#encryptionKeySettings').slideDown();
+        } else {
+            $('#encryptionKeySettings').slideUp();
+        }
+    });
+    
+    // Переключатель видимости пароля шифрования
+    $('#toggleEncryptionKey').on('click', function() {
+        const $input = $('#encryption_key');
+        const $icon = $('#toggleEncryptionKeyIcon');
+        
+        if ($input.attr('type') === 'password') {
+            $input.attr('type', 'text');
+            $icon.removeClass('fa-eye').addClass('fa-eye-slash');
+        } else {
+            $input.attr('type', 'password');
+            $icon.removeClass('fa-eye-slash').addClass('fa-eye');
+        }
+    });
+    
+    // Обработка сохранения настроек
+    $('#saveSettingsBtn').on('click', function() {
+        const $btn = $(this);
+        const originalHtml = $btn.html();
+        
+        // Проверка, если шифрование включено, то ключ должен быть указан
+        const encryptEnabled = $('#settings_encrypt_backups').is(':checked');
+        const encryptKey = $('#encryption_key').val().trim();
+        
+        if (encryptEnabled && !encryptKey) {
+            alert('{{ _("Please enter an encryption password") }}');
+            $('#encryption_key').focus();
+            return;
+        }
+        
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> {{ _("Saving...") }}');
+        
+        const formData = {
+            action: 'save_settings',
+            pg_dump_path: $('#pg_dump_path').val(),
+            psql_path: $('#psql_path').val(),
+            mysqldump_path: $('#mysqldump_path').val(),
+            mysql_path: $('#mysql_path').val(),
+            encrypt_backups: encryptEnabled ? 'on' : '',
+            encryption_key: encryptKey,
+            backup_database: $('#settings_backup_database').is(':checked') ? 'on' : '',
+            backup_cache: $('#settings_backup_cache').is(':checked') ? 'on' : '',
+            backup_plugins: $('#settings_backup_plugins').is(':checked') ? 'on' : '',
+            backup_user_files: $('#settings_backup_user_files').is(':checked') ? 'on' : '',
+            backup_app_core: $('#settings_backup_app_core').is(':checked') ? 'on' : ''
+        };
+        
+        $.ajax({
+            url: window.location.pathname,
+            method: 'POST',
+            data: formData,
+            success: function(response) {
+                if (response.success) {
+                    // Показываем уведомление об успехе
+                    $btn.html('<i class="fas fa-check"></i> {{ _("Saved!") }}');
+                    setTimeout(function() {
+                        // Закрываем модальное окно
+                        $('#settingsModal').modal('hide');
+                        $btn.html(originalHtml).prop('disabled', false);
+                        // Перезагружаем страницу для обновления настроек
+                        location.reload();
+                    }, 1000);
+                } else {
+                    alert('{{ _("Error saving settings") }}: ' + (response.error || '{{ _("Unknown error") }}'));
+                    $btn.html(originalHtml).prop('disabled', false);
+                }
+            },
+            error: function(xhr, status, error) {
+                let errorMessage = '{{ _("Error saving settings") }}';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage = xhr.responseJSON.error;
+                } else if (error) {
+                    errorMessage = error;
+                }
+                alert(errorMessage);
+                $btn.html(originalHtml).prop('disabled', false);
             }
         });
     });

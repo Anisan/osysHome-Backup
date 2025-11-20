@@ -13,7 +13,7 @@ class BackupManager:
     def __init__(self, config, logger=None):
         self.config = config
         self.logger = logger
-        self.db_handler = get_database_handler(Config.SQLALCHEMY_DATABASE_URI, self.logger)
+        self.db_handler = get_database_handler(Config.SQLALCHEMY_DATABASE_URI, self.logger, config)
         self.storage_handler = get_storage_handler(config)  
           
     def create_backup(
@@ -174,7 +174,12 @@ class BackupManager:
             if progress_callback:
                 progress_callback(92, 'Шифрование резервной копии...')
             old_backup_path = backup_path
-            backup_path = encrypt_backup(backup_path, self.config.get('encryption_key'))
+            # encrypt_backup возвращает tuple (encrypted_path, encryption_key)
+            encrypted_result = encrypt_backup(backup_path, self.config.get('encryption_key'))
+            if isinstance(encrypted_result, tuple):
+                backup_path, _ = encrypted_result  # Распаковываем tuple, ключ нам не нужен (уже есть в config)
+            else:
+                backup_path = encrypted_result
             self.logger.debug("BackupManager: backup encrypted to %s", backup_path)
             
             # Переносим external metadata для зашифрованного файла
@@ -419,7 +424,12 @@ class BackupManager:
             if progress_callback:
                 progress_callback(15, 'Расшифровка резервной копии...')
             self.logger.info("BackupManager: decrypting encrypted backup %s", backup_path)
-            backup_path = decrypt_backup(backup_path, self.config.get('encryption_key'))
+            # decrypt_backup может возвращать только путь (проверяем)
+            decrypted_result = decrypt_backup(backup_path, self.config.get('encryption_key'))
+            if isinstance(decrypted_result, tuple):
+                backup_path = decrypted_result[0]
+            else:
+                backup_path = decrypted_result
             self.logger.debug("BackupManager: decrypted backup located at %s", backup_path)
             if progress_callback:
                 progress_callback(20, 'Расшифровка завершена')
@@ -679,19 +689,6 @@ class BackupManager:
         """Получение размера резервной копии - делегирование к storage_handler"""  
         return self.storage_handler.get_backup_size(backup_name)  
           
-    def create_auto_backup(self):  
-        """Автоматическое создание резервной копии"""  
-        try:  
-            backup_name = f"auto_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"  
-            backup_path = self.create_backup(backup_name, include_files=True)  
-              
-            # Очистка старых автоматических резервных копий через storage_handler  
-            self.cleanup_old_backups()  
-              
-            return backup_path  
-        except Exception as e:  
-            print(f"Auto backup failed: {e}")  
-            return None  
               
     def get_backup_info(self, backup_name):  
         """Получение информации о резервной копии - делегирование к storage_handler"""  

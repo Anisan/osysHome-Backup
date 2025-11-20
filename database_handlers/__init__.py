@@ -3,7 +3,7 @@ from .sqlite_handler import SQLiteHandler
 from .mysql_handler import MySQLHandler  
 from .postgresql_handler import PostgreSQLHandler  
   
-def get_database_handler(database_uri, logger):  
+def get_database_handler(database_uri, logger=None, config=None):  
     """Фабрика для создания обработчика базы данных"""  
     parsed = urlparse(database_uri)  
     scheme = parsed.scheme.lower()
@@ -14,8 +14,8 @@ def get_database_handler(database_uri, logger):
     if db_type == 'sqlite':  
         return SQLiteHandler(database_uri, logger)  
     elif db_type == 'mysql':  
-        return MySQLHandler(database_uri, logger)  
+        return MySQLHandler(database_uri, logger, config)  
     elif db_type == 'postgresql':  
-        return PostgreSQLHandler(database_uri, logger)  
+        return PostgreSQLHandler(database_uri, logger, config)  
     else:  
         raise ValueError(f"Unsupported database type: {scheme}")

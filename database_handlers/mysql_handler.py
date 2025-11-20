@@ -3,9 +3,10 @@ import os
 from urllib.parse import urlparse
 
 class MySQLHandler:
-    def __init__(self, database_uri, logger):
+    def __init__(self, database_uri, logger, config=None):
         self.db_type = 'mysql'
         self.logger = logger
+        self.config = config or {}
         self.parse_uri(database_uri)  
           
     def parse_uri(self, uri):  
@@ -20,9 +21,12 @@ class MySQLHandler:
         """Создание резервной копии MySQL"""  
         os.makedirs(backup_path, exist_ok=True)  
         backup_file = os.path.join(backup_path, 'database.sql')  
+        
+        # Получаем путь к mysqldump из конфига или используем значение по умолчанию
+        mysqldump_path = self.config.get('mysqldump_path', 'mysqldump')
           
         cmd = [  
-            'mysqldump',  
+            mysqldump_path,  
             f'--host={self.host}',  
             f'--port={self.port}',  
             f'--user={self.username}',  
@@ -60,8 +64,11 @@ class MySQLHandler:
         if not os.path.exists(backup_file):
             raise FileNotFoundError(f"Backup file not found: {backup_file}")
         
+        # Получаем путь к mysql из конфига или используем значение по умолчанию
+        mysql_path = self.config.get('mysql_path', 'mysql')
+        
         cmd = [
-            'mysql',
+            mysql_path,
             f'--host={self.host}',
             f'--port={self.port}',
             f'--user={self.username}',

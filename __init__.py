@@ -3,6 +3,7 @@ from app.core.main.PluginsHelper import plugins
 from app.database import session_scope
 from app.configuration import Config
 from plugins.Backup.backup_manager import BackupManager
+from plugins.Backup.database_handlers import get_database_handler
 from flask import jsonify, send_file, request as flask_request
 from threading import Thread
 from werkzeug.utils import secure_filename
@@ -15,18 +16,66 @@ class Backup(BasePlugin):
         self.title = "Система резервного копирования"  
         self.description = "Модуль для создания и восстановления резервных копий системы"  
         self.category = "Система"  
-        self.actions = ["cycle", "widget"]  
+        self.actions = ["widget"]  
           
         self._ensure_config_defaults()
-        self.backup_manager = BackupManager(self.config, self.logger)  
+        self.backup_manager = BackupManager(self.config, self.logger)
+        
+        # Создаем или обновляем cron задачу при инициализации
+        self._setup_auto_backup_task()  
           
     def initialization(self):  
         """Инициализация плагина"""  
         # Создание директорий для резервных копий  
         backup_dir = self.config.get('backup_directory', 'backups')  
         os.makedirs(backup_dir, exist_ok=True)  
+        
+        # Настраиваем автоматическое резервное копирование при инициализации
+        self._setup_auto_backup_task()
           
-        self.logger.info("Backup plugin initialized")  
+        self.logger.info("Backup plugin initialized")
+    
+    def widget(self, name: str = None):
+        """Виджет для отображения на панели управления"""
+        from flask import render_template
+        from app.core.lib.common import getJob
+        
+        content = {}
+        
+        # Получаем список резервных копий
+        backups = self.backup_manager.list_backups()
+        content['count'] = len(backups)
+        
+        # Информация о последней резервной копии
+        if backups:
+            latest_backup = backups[0]  # Первый элемент - самая последняя копия
+            content['latest_backup'] = {
+                'name': latest_backup.get('name', 'N/A'),
+                'created_at': latest_backup.get('created_at', 'N/A'),
+                'size': latest_backup.get('size', 0),
+                'includes_database': latest_backup.get('includes_database', False),
+                'includes_cache': latest_backup.get('includes_cache', False),
+                'includes_files': latest_backup.get('includes_files', False),
+                'includes_user_files': latest_backup.get('includes_user_files', False),
+                'backup_resources': latest_backup.get('backup_resources', []),
+                'encrypted': latest_backup.get('encrypted', False),
+            }
+        else:
+            content['latest_backup'] = None
+        
+        # Статус автоматического резервного копирования
+        job_info = getJob('Backup_auto_periodic')
+        content['auto_backup_enabled'] = job_info is not None
+        
+        if job_info:
+            from app.database import convert_utc_to_local
+            runtime = job_info.get('runtime')
+            if runtime:
+                content['next_run'] = convert_utc_to_local(runtime).strftime('%Y-%m-%d %H:%M')
+        
+        content['format_size'] = self._format_size
+        
+        return render_template("widget_backup.html", **content)  
     
     def admin(self, request):
         """Административный интерфейс"""  
@@ -47,20 +96,70 @@ class Backup(BasePlugin):
                 return self._delete_backup(request)
             elif action == 'upload_backup':
                 return self._upload_backup(request)
+            elif action == 'save_settings':
+                return self._save_settings(request)
+            elif action == 'save_auto_backup_settings':
+                return self._save_auto_backup_settings(request)
+            elif action == 'get_auto_backup_settings':
+                return self._get_auto_backup_settings()
                   
         # Получение списка резервных копий  
         backups = self.backup_manager.list_backups()  
+        
+        # Определяем тип текущей базы данных
+        db_type = self.backup_manager.db_handler.db_type if self.backup_manager.db_handler else 'unknown'
+        
+        # Получаем информацию о cron задаче
+        from app.core.lib.common import getJob
+        job_info = getJob('Backup_auto_periodic')
+        auto_backup_enabled = job_info is not None
+        auto_backup_crontab = job_info.get('crontab', '0 2 * * *') if job_info else '0 2 * * *'
           
         return self.render('backup_main.html',{
                                   'backups':backups,  
                                   'settings':self.config,
-                                  'format_size': self._format_size
+                                  'format_size': self._format_size,
+                                  'db_type': db_type,
+                                  'auto_backup_enabled': auto_backup_enabled,
+                                  'auto_backup_crontab': auto_backup_crontab
                             })  
       
-    def cyclic_task(self):  
-        """Автоматическое создание резервных копий по расписанию"""  
-        if self.config.get('auto_backup_enabled', False):  
-            self.backup_manager.create_auto_backup()
+    def create_auto_backup(self):
+        """Создание автоматической резервной копии (вызывается через задачу)"""
+        try:
+            from datetime import datetime
+            self.logger.info("Starting automatic backup creation")
+            
+            # Используем настройки по умолчанию из конфигурации
+            include_database = self.config.get('backup_database', True)
+            include_cache = self.config.get('backup_cache', False)
+            include_plugins = self.config.get('backup_plugins', False)
+            include_user_files = self.config.get('backup_user_files', False)
+            include_app_core = self.config.get('backup_app_core', False)
+            
+            # Генерируем имя с префиксом auto_backup_
+            backup_name = f"auto_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            backup_path = self.backup_manager.create_backup(
+                backup_name=backup_name,
+                include_database=include_database,
+                include_cache=include_cache,
+                include_files=(include_plugins or include_app_core),
+                include_plugins=include_plugins,
+                include_user_files=include_user_files,
+                include_app_core=include_app_core,
+                progress_callback=None
+            )
+            
+            self.logger.info("Automatic backup created successfully: %s", backup_path)
+            
+            # Очистка старых автоматических резервных копий
+            self.backup_manager.cleanup_old_backups()
+            
+            return True
+        except Exception as e:
+            self.logger.error("Error creating automatic backup: %s", e)
+            return False
     
     @staticmethod
     def _format_size(size_bytes):
@@ -89,6 +188,14 @@ class Backup(BasePlugin):
         include_plugins = include_files and bool(request.form.get('include_plugins'))
         include_user_files = bool(request.form.get('include_user_files'))
         include_app_core = include_files and bool(request.form.get('include_app_core'))
+        
+        # Сохраняем состояние галочек в конфигурацию для использования по умолчанию
+        self.config['backup_database'] = include_database
+        self.config['backup_cache'] = include_cache
+        self.config['backup_plugins'] = include_plugins
+        self.config['backup_user_files'] = include_user_files
+        self.config['backup_app_core'] = include_app_core
+        self.saveConfig()
         
         # Запускаем создание бэкапа в отдельном потоке
         def backup_thread():
@@ -268,6 +375,131 @@ class Backup(BasePlugin):
         except Exception as e:
             self.logger.error("Error uploading backup: %s", e)
             return jsonify({'success': False, 'error': str(e)})
+    
+    def _save_settings(self, request):
+        """Сохранение настроек модуля"""
+        try:
+            # Пути к утилитам
+            self.config['pg_dump_path'] = request.form.get('pg_dump_path', 'pg_dump').strip() or 'pg_dump'
+            self.config['psql_path'] = request.form.get('psql_path', 'psql').strip() or 'psql'
+            self.config['mysqldump_path'] = request.form.get('mysqldump_path', 'mysqldump').strip() or 'mysqldump'
+            self.config['mysql_path'] = request.form.get('mysql_path', 'mysql').strip() or 'mysql'
+            
+            # Настройки шифрования
+            encrypt_backups = bool(request.form.get('encrypt_backups'))
+            encryption_key = request.form.get('encryption_key', '').strip()
+            
+            # Проверка: если шифрование включено, ключ обязателен
+            if encrypt_backups and not encryption_key:
+                return jsonify({'success': False, 'error': 'Encryption key is required when encryption is enabled'})
+            
+            self.config['encrypt_backups'] = encrypt_backups
+            if encryption_key:  # Сохраняем ключ только если он указан
+                self.config['encryption_key'] = encryption_key
+            elif not encrypt_backups and 'encryption_key' in self.config:
+                # Если шифрование отключено, можно удалить ключ (опционально)
+                pass
+            
+            # Галочки параметров резервного копирования
+            self.config['backup_database'] = bool(request.form.get('backup_database'))
+            self.config['backup_cache'] = bool(request.form.get('backup_cache'))
+            self.config['backup_plugins'] = bool(request.form.get('backup_plugins'))
+            self.config['backup_user_files'] = bool(request.form.get('backup_user_files'))
+            self.config['backup_app_core'] = bool(request.form.get('backup_app_core'))
+            
+            # Сохраняем конфигурацию
+            self.saveConfig()
+            
+            # Обновляем backup_manager с новыми путями
+            self.backup_manager.config = self.config
+            self.backup_manager.db_handler = get_database_handler(Config.SQLALCHEMY_DATABASE_URI, self.logger, self.config)
+            
+            self.logger.info("Backup settings saved successfully (encryption: %s)", encrypt_backups)
+            return jsonify({'success': True, 'message': 'Settings saved successfully'})
+            
+        except Exception as e:
+            self.logger.error("Error saving settings: %s", e)
+            return jsonify({'success': False, 'error': str(e)})
+    
+    def _save_auto_backup_settings(self, request):
+        """Сохранение настроек автоматического резервного копирования"""
+        try:
+            enabled = request.form.get('enabled') == 'true'
+            crontab = request.form.get('crontab', '0 2 * * *').strip()
+            
+            if not crontab:
+                crontab = '0 2 * * *'
+            
+            # Валидация crontab выражения
+            try:
+                from app.core.lib.crontab import nextStartCronJob
+                nextStartCronJob(crontab)
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Invalid crontab format: {str(e)}'})
+            
+            # Сохраняем настройки
+            self.config['auto_backup_enabled'] = enabled
+            self.config['auto_backup_crontab'] = crontab
+            self.saveConfig()
+            
+            # Обновляем задачу
+            self._setup_auto_backup_task()
+            
+            self.logger.info("Auto backup settings saved: enabled=%s, crontab=%s", enabled, crontab)
+            return jsonify({'success': True, 'message': 'Auto backup settings saved successfully'})
+            
+        except Exception as e:
+            self.logger.error("Error saving auto backup settings: %s", e)
+            return jsonify({'success': False, 'error': str(e)})
+    
+    def _get_auto_backup_settings(self):
+        """Получение текущих настроек автоматического резервного копирования"""
+        try:
+            from app.core.lib.common import getJob
+            job_info = getJob('Backup_auto_periodic')
+            
+            enabled = job_info is not None
+            crontab = job_info.get('crontab', '0 2 * * *') if job_info else self.config.get('auto_backup_crontab', '0 2 * * *')
+            
+            # Вычисляем следующий запуск
+            next_run = None
+            if enabled and job_info:
+                from app.database import convert_utc_to_local
+                runtime = job_info.get('runtime')
+                if runtime:
+                    next_run = convert_utc_to_local(runtime).strftime('%Y-%m-%d %H:%M:%S')
+            
+            return jsonify({
+                'success': True,
+                'enabled': enabled,
+                'crontab': crontab,
+                'next_run': next_run
+            })
+        except Exception as e:
+            self.logger.error("Error getting auto backup settings: %s", e)
+            return jsonify({'success': False, 'error': str(e)})
+    
+    def _setup_auto_backup_task(self):
+        """Настройка cron задачи для автоматического резервного копирования"""
+        try:
+            from app.core.lib.common import addCronJob, clearScheduledJob
+            
+            enabled = self.config.get('auto_backup_enabled', False)
+            crontab = self.config.get('auto_backup_crontab', '0 2 * * *')
+            
+            # Всегда очищаем старую задачу
+            clearScheduledJob('Backup_auto_periodic')
+            
+            # Создаем новую задачу, если включено
+            if enabled:
+                code = 'from app.core.lib.common import callPluginFunction; callPluginFunction("Backup", "create_auto_backup", {})'
+                addCronJob('Backup_auto_periodic', code, crontab)
+                self.logger.info("Auto backup task scheduled with crontab: %s", crontab)
+            else:
+                self.logger.info("Auto backup task disabled")
+                
+        except Exception as e:
+            self.logger.error("Error setting up auto backup task: %s", e)
 
     def _stop_all_cycles(self):
         """Останавливаем циклы всех модулей перед восстановлением"""
@@ -309,6 +541,8 @@ class Backup(BasePlugin):
             'backup_plugins': False,
             'backup_user_files': False,
             'backup_app_core': False,
+            'encrypt_backups': False,
+            'compress_backups': True,
         }
 
         paths = {
@@ -316,6 +550,14 @@ class Backup(BasePlugin):
             'plugins_directory': Config.PLUGINS_FOLDER,
             'user_files_directory': Config.FILES_DIR,
             'app_core_directory': os.path.join(Config.APP_DIR, 'app'),
+        }
+        
+        # Пути к утилитам резервного копирования (по умолчанию - искать в PATH)
+        tool_paths = {
+            'pg_dump_path': 'pg_dump',
+            'psql_path': 'psql',
+            'mysqldump_path': 'mysqldump',
+            'mysql_path': 'mysql',
         }
 
         updated = False
@@ -325,6 +567,10 @@ class Backup(BasePlugin):
                 updated = True
         for key, value in paths.items():
             if self.config.get(key) != value:
+                self.config[key] = value
+                updated = True
+        for key, value in tool_paths.items():
+            if self.config.get(key) is None:
                 self.config[key] = value
                 updated = True
 

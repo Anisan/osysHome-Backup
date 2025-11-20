@@ -3,9 +3,10 @@ import os
 from urllib.parse import urlparse
 
 class PostgreSQLHandler:
-    def __init__(self, database_uri, logger):
+    def __init__(self, database_uri, logger, config=None):
         self.db_type = 'postgresql'
         self.logger = logger
+        self.config = config or {}
         self.parse_uri(database_uri)  
           
     def parse_uri(self, uri):  
@@ -20,6 +21,9 @@ class PostgreSQLHandler:
         """Создание резервной копии PostgreSQL"""  
         os.makedirs(backup_path, exist_ok=True)  
         backup_file = os.path.join(backup_path, 'database.sql')  
+        
+        # Получаем путь к pg_dump из конфига или используем значение по умолчанию
+        pg_dump_path = self.config.get('pg_dump_path', 'pg_dump')
           
         env = os.environ.copy()  
         if self.password:  
@@ -28,7 +32,7 @@ class PostgreSQLHandler:
         env['PGCLIENTENCODING'] = 'UTF8'
               
         cmd = [  
-            'pg_dump',  
+            pg_dump_path,  
             '-h', self.host,  
             '-p', str(self.port),  
             '-U', self.username,  
@@ -59,6 +63,9 @@ class PostgreSQLHandler:
         if not os.path.exists(backup_file):
             raise FileNotFoundError(f"Backup file not found: {backup_file}")
         
+        # Получаем путь к psql из конфига или используем значение по умолчанию
+        psql_path = self.config.get('psql_path', 'psql')
+        
         env = os.environ.copy()
         if self.password:
             env['PGPASSWORD'] = self.password
@@ -68,7 +75,7 @@ class PostgreSQLHandler:
         # Сначала очищаем базу данных (удаляем все объекты)
         # Используем psql для выполнения SQL команд
         cmd_drop = [
-            'psql',
+            psql_path,
             '-h', self.host,
             '-p', str(self.port),
             '-U', self.username,
@@ -91,7 +98,7 @@ class PostgreSQLHandler:
         
         # Восстанавливаем из дампа
         cmd_restore = [
-            'psql',
+            psql_path,
             '-h', self.host,
             '-p', str(self.port),
             '-U', self.username,

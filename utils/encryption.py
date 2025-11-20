@@ -35,10 +35,14 @@ class BackupEncryption:
         """Генерация случайного ключа шифрования"""  
         return Fernet.generate_key()  
           
-    def encrypt_file(self, file_path, key, output_path=None):  
+    def encrypt_file(self, file_path, key, output_path=None, salt=None):  
         """Шифрование отдельного файла"""  
-        if output_path is None:  
-            output_path = file_path + '.encrypted'  
+        if output_path is None:
+            # Правильное формирование имени: .tar.gz -> .encrypted.tar.gz
+            if file_path.endswith('.tar.gz'):
+                output_path = file_path.replace('.tar.gz', '.encrypted.tar.gz')
+            else:
+                output_path = file_path + '.encrypted'
               
         fernet = Fernet(key)  
           
@@ -46,21 +50,34 @@ class BackupEncryption:
             file_data = file.read()  
               
         encrypted_data = fernet.encrypt(file_data)  
-          
-        with open(output_path, 'wb') as file:  
+        
+        # Если есть соль, встраиваем её в начало файла
+        with open(output_path, 'wb') as file:
+            if salt is not None:
+                # Первые 16 байт = соль
+                file.write(salt)
+            # Остальное = зашифрованные данные
             file.write(encrypted_data)  
               
         return output_path  
           
-    def decrypt_file(self, encrypted_file_path, key, output_path=None):  
+    def decrypt_file(self, encrypted_file_path, key, output_path=None, has_embedded_salt=False):  
         """Дешифрование отдельного файла"""  
-        if output_path is None:  
-            output_path = encrypted_file_path.replace('.encrypted', '')  
+        if output_path is None:
+            # Правильное восстановление имени: .encrypted.tar.gz -> .tar.gz
+            if encrypted_file_path.endswith('.encrypted.tar.gz'):
+                output_path = encrypted_file_path.replace('.encrypted.tar.gz', '.tar.gz')
+            else:
+                output_path = encrypted_file_path.replace('.encrypted', '')
               
         fernet = Fernet(key)  
           
         with open(encrypted_file_path, 'rb') as file:  
-            encrypted_data = file.read()  
+            encrypted_data = file.read()
+        
+        # Если соль встроена, пропускаем первые 16 байт
+        if has_embedded_salt:
+            encrypted_data = encrypted_data[16:]  # Пропускаем соль
               
         try:  
             decrypted_data = fernet.decrypt(encrypted_data)  
@@ -90,14 +107,14 @@ class BackupEncryption:
           
         return encrypted_path  
           
-    def decrypt_directory(self, encrypted_path, key, output_directory=None):  
+    def decrypt_directory(self, encrypted_path, key, output_directory=None, has_embedded_salt=False):
         """Дешифрование директории"""  
         if output_directory is None:  
             output_directory = os.path.dirname(encrypted_path)  
               
         # Дешифрование архива  
         temp_archive = encrypted_path.replace('.encrypted.tar.gz', '.temp.tar.gz')  
-        self.decrypt_file(encrypted_path, key, temp_archive)  
+        self.decrypt_file(encrypted_path, key, temp_archive, has_embedded_salt=has_embedded_salt)
           
         # Извлечение архива  
         with tarfile.open(temp_archive, 'r:gz') as tar:  
@@ -175,23 +192,22 @@ def encrypt_backup(backup_path, encryption_key=None, method='fernet'):
     """  
     if method == 'fernet':  
         encryptor = BackupEncryption()  
+        salt_data = None  # Инициализируем переменную
           
         if encryption_key is None:  
             encryption_key = encryptor.generate_random_key()  
         elif isinstance(encryption_key, str):  
             # Если передан пароль, генерируем ключ  
             encryption_key, salt = encryptor.generate_key_from_password(encryption_key)  
-            # Сохраняем соль для последующего дешифрования  
-            salt_file = backup_path + '.salt'  
-            with open(salt_file, 'wb') as f:  
-                f.write(salt)  
+            # Соль будет встроена в файл
+            salt_data = salt
                   
         if os.path.isdir(backup_path):  
             encrypted_path = encryptor.encrypt_directory(backup_path, encryption_key)  
             # Удаление исходной директории после шифрования  
             shutil.rmtree(backup_path)  
         else:  
-            encrypted_path = encryptor.encrypt_file(backup_path, encryption_key)  
+            encrypted_path = encryptor.encrypt_file(backup_path, encryption_key, salt=salt_data)  
             # Удаление исходного файла после шифрования  
             os.remove(backup_path)  
               
@@ -239,21 +255,25 @@ def decrypt_backup(encrypted_path, encryption_key, method='fernet'):
     """  
     if method == 'fernet':  
         encryptor = BackupEncryption()  
+        has_embedded_salt = False
           
         if isinstance(encryption_key, str):  
-            # Если передан пароль, восстанавливаем ключ из соли  
-            salt_file = encrypted_path.replace('.encrypted.tar.gz', '.salt')  
-            if os.path.exists(salt_file):  
-                with open(salt_file, 'rb') as f:  
-                    salt = f.read()  
-                encryption_key, _ = encryptor.generate_key_from_password(encryption_key, salt)  
-            else:  
-                raise ValueError("Файл соли не найден для восстановления ключа")  
+            # Если передан пароль, читаем соль из начала файла
+            with open(encrypted_path, 'rb') as f:
+                salt = f.read(16)  # Первые 16 байт = соль
+            
+            # Генерируем ключ из пароля и соли
+            encryption_key, _ = encryptor.generate_key_from_password(encryption_key, salt)
+            has_embedded_salt = True
                   
         if encrypted_path.endswith('.encrypted.tar.gz'):  
-            decrypted_path = encryptor.decrypt_directory(encrypted_path, encryption_key)  
+            decrypted_path = encryptor.decrypt_directory(
+                encrypted_path,
+                encryption_key,
+                has_embedded_salt=has_embedded_salt,
+            )  
         else:  
-            decrypted_path = encryptor.decrypt_file(encrypted_path, encryption_key)  
+            decrypted_path = encryptor.decrypt_file(encrypted_path, encryption_key, has_embedded_salt=has_embedded_salt)  
               
     elif method == 'aes':  
         encryptor = AESEncryption()  
