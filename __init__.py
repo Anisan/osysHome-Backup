@@ -1,5 +1,6 @@
 from app.core.main.BasePlugin import BasePlugin
 from app.core.main.PluginsHelper import plugins
+from app.core.lib.common import addNotify, CategoryNotify
 from app.database import session_scope
 from app.configuration import Config
 from plugins.Backup.backup_manager import BackupManager
@@ -68,10 +69,9 @@ class Backup(BasePlugin):
         content['auto_backup_enabled'] = job_info is not None
         
         if job_info:
-            from app.database import convert_utc_to_local
             runtime = job_info.get('runtime')
             if runtime:
-                content['next_run'] = convert_utc_to_local(runtime).strftime('%Y-%m-%d %H:%M')
+                content['next_run'] = runtime.strftime('%Y-%m-%d %H:%M')
         
         content['format_size'] = self._format_size
         
@@ -159,6 +159,12 @@ class Backup(BasePlugin):
             return True
         except Exception as e:
             self.logger.error("Error creating automatic backup: %s", e)
+            addNotify(
+                "Ошибка автоматического резервного копирования",
+                f"Не удалось создать резервную копию автоматически: {e}",
+                CategoryNotify.Error,
+                self.name,
+            )
             return False
     
     @staticmethod
@@ -464,10 +470,9 @@ class Backup(BasePlugin):
             # Вычисляем следующий запуск
             next_run = None
             if enabled and job_info:
-                from app.database import convert_utc_to_local
                 runtime = job_info.get('runtime')
                 if runtime:
-                    next_run = convert_utc_to_local(runtime).strftime('%Y-%m-%d %H:%M:%S')
+                    next_run = runtime.strftime('%Y-%m-%d %H:%M:%S')
             
             return jsonify({
                 'success': True,
