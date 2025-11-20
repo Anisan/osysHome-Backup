@@ -6,13 +6,16 @@ from .postgresql_handler import PostgreSQLHandler
 def get_database_handler(database_uri, logger):  
     """Фабрика для создания обработчика базы данных"""  
     parsed = urlparse(database_uri)  
-    scheme = parsed.scheme.lower()  
+    scheme = parsed.scheme.lower()
+    
+    # Extract base database type (handle drivers like postgresql+psycopg2)
+    db_type = scheme.split('+')[0]
       
-    if scheme == 'sqlite':  
+    if db_type == 'sqlite':  
         return SQLiteHandler(database_uri, logger)  
-    elif scheme == 'mysql':  
+    elif db_type == 'mysql':  
         return MySQLHandler(database_uri, logger)  
-    elif scheme == 'postgresql':  
+    elif db_type == 'postgresql':  
         return PostgreSQLHandler(database_uri, logger)  
     else:  
         raise ValueError(f"Unsupported database type: {scheme}")
