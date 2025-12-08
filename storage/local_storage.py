@@ -1,12 +1,21 @@
 import os  
 import shutil  
 import json
-from datetime import datetime  
+from datetime import datetime, timedelta  
   
 class LocalStorage:  
     def __init__(self, config):  
+        self.config = config
         self.backup_dir = config.get('backup_directory', 'backups')  
-        self.max_backups = config.get('max_backups', 10)  
+        self.max_backups = config.get('max_backups', 10)
+        self.storage_duration_days = config.get('storage_duration_days', 30)
+    
+    def update_config(self, config):
+        """Обновление конфигурации storage handler"""
+        self.config = config
+        self.backup_dir = config.get('backup_directory', 'backups')
+        self.max_backups = config.get('max_backups', 10)
+        self.storage_duration_days = config.get('storage_duration_days', 30)  
           
     def list_backups(self):  
         """Получение списка резервных копий"""  
@@ -81,11 +90,78 @@ class LocalStorage:
         return False  
           
     def cleanup_old_backups(self):  
-        """Удаление старых резервных копий"""  
+        """Удаление старых резервных копий с учетом количества и длительности хранения"""  
         backups = self.list_backups()  
-        if len(backups) > self.max_backups:  
-            for backup in backups[self.max_backups:]:  
-                self.delete_backup(backup['name'])  
+        if not backups:
+            return
+        
+        # Вычисляем дату истечения срока хранения
+        expiration_date = datetime.now() - timedelta(days=self.storage_duration_days)
+        
+        # Список копий для удаления
+        to_delete = []
+        
+        # Обновляем значения из конфигурации на случай, если они изменились
+        if hasattr(self, 'config'):
+            self.max_backups = self.config.get('max_backups', self.max_backups)
+            self.storage_duration_days = self.config.get('storage_duration_days', self.storage_duration_days)
+            expiration_date = datetime.now() - timedelta(days=self.storage_duration_days)
+        
+        # Проверяем каждую резервную копию
+        for backup_index, backup in enumerate(backups):
+            should_delete = False
+            
+            # Проверка по количеству (удаляем самые старые, если превышен лимит)
+            if backup_index >= self.max_backups:
+                should_delete = True
+            
+            # Проверка по длительности хранения
+            try:
+                created_at_str = backup.get('created_at', '')
+                if created_at_str:
+                    # Парсим дату создания
+                    try:
+                        # Пробуем ISO формат с временной зоной
+                        if 'T' in created_at_str:
+                            # Убираем Z и добавляем +00:00 для UTC
+                            if created_at_str.endswith('Z'):
+                                created_at_str = created_at_str.replace('Z', '+00:00')
+                            created_at = datetime.fromisoformat(created_at_str)
+                        else:
+                            # Просто дата без времени
+                            created_at = datetime.fromisoformat(created_at_str)
+                        
+                        # Если дата создания раньше даты истечения
+                        if created_at.replace(tzinfo=None) < expiration_date:
+                            should_delete = True
+                    except (ValueError, AttributeError):
+                        # Если не удалось распарсить дату, используем время модификации файла
+                        backup_path = os.path.join(self.backup_dir, backup['name'])
+                        if os.path.exists(backup_path):
+                            file_mtime = datetime.fromtimestamp(os.path.getmtime(backup_path))
+                            if file_mtime < expiration_date:
+                                should_delete = True
+            except Exception:
+                # Если не удалось распарсить дату, используем время модификации файла
+                backup_path = os.path.join(self.backup_dir, backup['name'])
+                if os.path.exists(backup_path):
+                    try:
+                        file_mtime = datetime.fromtimestamp(os.path.getmtime(backup_path))
+                        if file_mtime < expiration_date:
+                            should_delete = True
+                    except Exception:
+                        pass
+            
+            if should_delete:
+                to_delete.append(backup)
+        
+        # Удаляем найденные копии
+        for backup in to_delete:
+            try:
+                self.delete_backup(backup['name'])
+            except Exception as e:
+                # Логируем ошибку, но продолжаем удаление других копий
+                pass  
                   
     def _get_backup_size(self, backup_path):  
         """Вычисление размера резервной копии"""  

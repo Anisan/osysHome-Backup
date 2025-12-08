@@ -163,8 +163,11 @@
           
         <div class="col-md-6">  
             <div class="card">  
-                <div class="card-header">  
-                    <h5>{{ _('Backup List') }}</h5>  
+                <div class="card-header d-flex justify-content-between align-items-center">  
+                    <h5 class="mb-0">{{ _('Backup List') }}</h5>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#storageSettingsModal">
+                        <i class="fas fa-cog"></i> {{ _('Storage Settings') }}
+                    </button>
                 </div>  
                 <div class="card-body">
                     {% if backups %}
@@ -424,7 +427,57 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
                 <button type="button" class="btn btn-primary" id="saveSettingsBtn">
-                    <i class="fas fa-save"></i> {{ _('Save Settings') }}
+                    <i class="fas fa-save"></i> {{ _('Save') }}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal для настроек хранения резервных копий -->
+<div class="modal fade" id="storageSettingsModal" tabindex="-1" role="dialog" aria-labelledby="storageSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="storageSettingsModalLabel">{{ _('Storage Settings') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="storageSettingsForm">
+                    <input type="hidden" name="action" value="save_storage_settings">
+                    
+                    <div class="mb-3">
+                        <label for="max_backups" class="form-label">
+                            {{ _('Maximum number of backups to keep') }}
+                        </label>
+                        <input type="number" name="max_backups" id="max_backups" class="form-control" 
+                               value="{{ max_backups }}" min="1" required>
+                        <div class="form-text">
+                            {{ _('When this limit is reached, the oldest backups will be automatically deleted') }}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="storage_duration_days" class="form-label">
+                            {{ _('Storage duration (days)') }}
+                        </label>
+                        <input type="number" name="storage_duration_days" id="storage_duration_days" class="form-control" 
+                               value="{{ storage_duration_days }}" min="1" required>
+                        <div class="form-text">
+                            {{ _('Backups older than this number of days will be automatically deleted') }}
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 
+                        {{ _('Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration') }}
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="saveStorageSettingsBtn">
+                    <i class="fas fa-save"></i> {{ _('Save') }}
                 </button>
             </div>
         </div>
@@ -900,6 +953,65 @@ $(document).ready(function() {
         addLogEntry(0, '✗ Ошибка: ' + errorMessage);
         $('#backupModalFooter').show();
     }
+    
+    // Обработка сохранения настроек хранения
+    $('#saveStorageSettingsBtn').on('click', function() {
+        const $btn = $(this);
+        const originalHtml = $btn.html();
+        
+        const maxBackups = parseInt($('#max_backups').val());
+        const storageDurationDays = parseInt($('#storage_duration_days').val());
+        
+        if (isNaN(maxBackups) || maxBackups < 1) {
+            alert('{{ _("Please enter a valid number of backups (minimum 1)") }}');
+            $('#max_backups').focus();
+            return;
+        }
+        
+        if (isNaN(storageDurationDays) || storageDurationDays < 1) {
+            alert('{{ _("Please enter a valid storage duration (minimum 1 day)") }}');
+            $('#storage_duration_days').focus();
+            return;
+        }
+        
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> {{ _("Saving...") }}');
+        
+        const formData = {
+            action: 'save_storage_settings',
+            max_backups: maxBackups,
+            storage_duration_days: storageDurationDays
+        };
+        
+        $.ajax({
+            url: window.location.pathname,
+            method: 'POST',
+            data: formData,
+            success: function(response) {
+                if (response.success) {
+                    $btn.html('<i class="fas fa-check"></i> {{ _("Saved!") }}');
+                    setTimeout(function() {
+                        $('#storageSettingsModal').modal('hide');
+                        $btn.html(originalHtml).prop('disabled', false);
+                        // Перезагружаем страницу для обновления настроек
+                        location.reload();
+                    }, 1000);
+                } else {
+                    alert('{{ _("Error saving storage settings") }}: ' + (response.error || '{{ _("Unknown error") }}'));
+                    $btn.html(originalHtml).prop('disabled', false);
+                }
+            },
+            error: function(xhr, status, error) {
+                let errorMessage = '{{ _("Error saving storage settings") }}';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage = xhr.responseJSON.error;
+                } else if (error) {
+                    errorMessage = error;
+                }
+                alert(errorMessage);
+                $btn.html(originalHtml).prop('disabled', false);
+            }
+        });
+    });
     
     // Обработка загрузки резервной копии
     $('#uploadBackupForm').on('submit', function(e) {

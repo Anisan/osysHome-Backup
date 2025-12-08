@@ -5,6 +5,7 @@ from app.database import session_scope
 from app.configuration import Config
 from plugins.Backup.backup_manager import BackupManager
 from plugins.Backup.database_handlers import get_database_handler
+from plugins.Backup.storage import get_storage_handler
 from flask import jsonify, send_file, request as flask_request
 from threading import Thread
 from werkzeug.utils import secure_filename
@@ -14,9 +15,10 @@ class Backup(BasePlugin):
     def __init__(self, app):  
         super().__init__(app, __name__)  
         self.name = "Backup"  
-        self.title = "Система резервного копирования"  
-        self.description = "Модуль для создания и восстановления резервных копий системы"  
-        self.category = "Система"  
+        self.title = "Backup"  
+        self.description = "Module for creating and restoring system backups"  
+        self.category = "System"  
+        self.version = "1.4"
         self.actions = ["widget"]  
           
         self._ensure_config_defaults()
@@ -102,6 +104,8 @@ class Backup(BasePlugin):
                 return self._save_auto_backup_settings(request)
             elif action == 'get_auto_backup_settings':
                 return self._get_auto_backup_settings()
+            elif action == 'save_storage_settings':
+                return self._save_storage_settings(request)
                   
         # Получение списка резервных копий  
         backups = self.backup_manager.list_backups()  
@@ -121,7 +125,9 @@ class Backup(BasePlugin):
                                   'format_size': self._format_size,
                                   'db_type': db_type,
                                   'auto_backup_enabled': auto_backup_enabled,
-                                  'auto_backup_crontab': auto_backup_crontab
+                                  'auto_backup_crontab': auto_backup_crontab,
+                                  'max_backups': self.config.get('max_backups', 10),
+                                  'storage_duration_days': self.config.get('storage_duration_days', 30)
                             })  
       
     def create_auto_backup(self):
@@ -224,6 +230,9 @@ class Backup(BasePlugin):
                     include_app_core=include_app_core,
                     progress_callback=progress_callback
                 )
+                
+                # Очистка старых резервных копий после успешного создания
+                self.backup_manager.cleanup_old_backups()
                 
                 # Отправляем финальное сообщение об успехе
                 self.sendDataToWebsocket('backup_progress', {
@@ -548,6 +557,8 @@ class Backup(BasePlugin):
             'backup_app_core': False,
             'encrypt_backups': False,
             'compress_backups': True,
+            'max_backups': 10,
+            'storage_duration_days': 30,
         }
 
         paths = {
@@ -582,3 +593,44 @@ class Backup(BasePlugin):
         if updated:
             self.logger.debug("Backup plugin config updated with defaults: %s", defaults)
             self.saveConfig()
+    
+    def _save_storage_settings(self, request):
+        """Сохранение настроек хранения резервных копий"""
+        try:
+            max_backups = request.form.get('max_backups', '10').strip()
+            storage_duration_days = request.form.get('storage_duration_days', '30').strip()
+            
+            # Валидация
+            try:
+                max_backups = int(max_backups)
+                if max_backups < 1:
+                    return jsonify({'success': False, 'error': 'Количество копий должно быть не менее 1'})
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Неверное значение количества копий'})
+            
+            try:
+                storage_duration_days = int(storage_duration_days)
+                if storage_duration_days < 1:
+                    return jsonify({'success': False, 'error': 'Длительность хранения должна быть не менее 1 дня'})
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Неверное значение длительности хранения'})
+            
+            # Сохраняем настройки
+            self.config['max_backups'] = max_backups
+            self.config['storage_duration_days'] = storage_duration_days
+            self.saveConfig()
+            
+            # Обновляем backup_manager с новыми настройками
+            self.backup_manager.config = self.config
+            # Обновляем storage_handler с новыми настройками
+            if hasattr(self.backup_manager.storage_handler, 'update_config'):
+                self.backup_manager.storage_handler.update_config(self.config)
+            else:
+                self.backup_manager.storage_handler = get_storage_handler(self.config)
+            
+            self.logger.info("Storage settings saved: max_backups=%s, storage_duration_days=%s", max_backups, storage_duration_days)
+            return jsonify({'success': True, 'message': 'Настройки хранения сохранены успешно'})
+            
+        except Exception as e:
+            self.logger.error("Error saving storage settings: %s", e)
+            return jsonify({'success': False, 'error': str(e)})
