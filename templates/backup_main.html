@@ -115,6 +115,16 @@
                                     {{ _('Path:') }} {{ settings.app_core_directory or _('default app core dir') }}
                                 </div>
                             </div>
+                            <div class="form-check mt-2">
+                                <input type="checkbox" name="include_venv" id="include_venv" class="form-check-input"
+                                       {% if settings.backup_venv %}checked{% endif %}>
+                                <label class="form-check-label" for="include_venv">
+                                    {{ _('Include virtual environment (venv)') }}
+                                </label>
+                                <div class="form-text text-muted">
+                                    {{ _('Path:') }} {{ settings.venv_directory or _('default venv path') }}
+                                </div>
+                            </div>
                         </div>
                         <div class="form-check mb-2 mt-3">
                             <input type="checkbox" name="include_user_files" id="include_user_files" class="form-check-input"
@@ -206,6 +216,10 @@
                                             {% elif resource.alias == 'app' %}
                                             <span class="badge bg-dark me-1">
                                                 <i class="fas fa-code"></i> {{ _('App Core') }}
+                                            </span>
+                                            {% elif resource.alias == 'venv' %}
+                                            <span class="badge bg-secondary me-1">
+                                                <i class="fas fa-terminal"></i> {{ _('Virtual Env') }}
                                             </span>
                                             {% endif %}
                                         {% endfor %}
@@ -421,6 +435,26 @@
                         <label class="form-check-label" for="settings_backup_app_core">
                             {{ _('Include app core by default') }}
                         </label>
+                    </div>
+                    
+                    <div class="form-check mb-2">
+                        <input type="checkbox" name="backup_venv" id="settings_backup_venv" class="form-check-input"
+                               {% if settings.backup_venv %}checked{% endif %}>
+                        <label class="form-check-label" for="settings_backup_venv">
+                            {{ _('Include virtual environment by default') }}
+                        </label>
+                        <div class="form-text text-muted">
+                            {{ _('Path:') }} {{ settings.venv_directory or _('default venv path') }}
+                        </div>
+                    </div>
+
+                    <div class="mb-3 mt-3">
+                        <label for="venv_directory" class="form-label">{{ _('Virtual environment path') }}</label>
+                        <input type="text" name="venv_directory" id="venv_directory" class="form-control"
+                               value="{{ settings.venv_directory or '' }}" placeholder="{{ _('e.g. /path/to/.venv') }}">
+                        <div class="form-text">
+                            {{ _('Used when backing up the virtual environment; defaults to .venv or venv in the app directory') }}
+                        </div>
                     </div>
                 </form>
             </div>
@@ -694,7 +728,8 @@ $(document).ready(function() {
             include_files: $('#include_files').is(':checked') ? 'on' : '',
             include_plugins: $('#include_plugins').is(':checked') ? 'on' : '',
             include_user_files: $('#include_user_files').is(':checked') ? 'on' : '',
-            include_app_core: $('#include_app_core').is(':checked') ? 'on' : ''
+            include_app_core: $('#include_app_core').is(':checked') ? 'on' : '',
+            include_venv: $('#include_venv').is(':checked') ? 'on' : ''
         };
         
         // Сохраняем имя бэкапа для фильтрации сообщений
@@ -789,7 +824,9 @@ $(document).ready(function() {
             backup_cache: $('#settings_backup_cache').is(':checked') ? 'on' : '',
             backup_plugins: $('#settings_backup_plugins').is(':checked') ? 'on' : '',
             backup_user_files: $('#settings_backup_user_files').is(':checked') ? 'on' : '',
-            backup_app_core: $('#settings_backup_app_core').is(':checked') ? 'on' : ''
+            backup_app_core: $('#settings_backup_app_core').is(':checked') ? 'on' : '',
+            backup_venv: $('#settings_backup_venv').is(':checked') ? 'on' : '',
+            venv_directory: $('#venv_directory').val()
         };
         
         $.ajax({
@@ -950,7 +987,7 @@ $(document).ready(function() {
         $('#backupErrorMessage').removeClass('d-none').html(
             '<i class="fas fa-exclamation-circle"></i> ' + errorMessage
         );
-        addLogEntry(0, '✗ Ошибка: ' + errorMessage);
+        addLogEntry(0, '✗ {{ _("Error") }}: ' + errorMessage);
         $('#backupModalFooter').show();
     }
     

@@ -1,3 +1,4 @@
+from app import safe_translate as _
 from app.core.main.BasePlugin import BasePlugin
 from app.core.main.PluginsHelper import plugins
 from app.core.lib.common import addNotify, CategoryNotify
@@ -142,6 +143,7 @@ class Backup(BasePlugin):
             include_plugins = self.config.get('backup_plugins', False)
             include_user_files = self.config.get('backup_user_files', False)
             include_app_core = self.config.get('backup_app_core', False)
+            include_venv = self.config.get('backup_venv', False)
             
             # Генерируем имя с префиксом auto_backup_
             backup_name = f"auto_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -150,10 +152,11 @@ class Backup(BasePlugin):
                 backup_name=backup_name,
                 include_database=include_database,
                 include_cache=include_cache,
-                include_files=(include_plugins or include_app_core),
+                include_files=(include_plugins or include_app_core or include_venv),
                 include_plugins=include_plugins,
                 include_user_files=include_user_files,
                 include_app_core=include_app_core,
+                include_venv=include_venv,
                 progress_callback=None
             )
             
@@ -200,6 +203,7 @@ class Backup(BasePlugin):
         include_plugins = include_files and bool(request.form.get('include_plugins'))
         include_user_files = bool(request.form.get('include_user_files'))
         include_app_core = include_files and bool(request.form.get('include_app_core'))
+        include_venv = include_files and bool(request.form.get('include_venv'))
         
         # Сохраняем состояние галочек в конфигурацию для использования по умолчанию
         self.config['backup_database'] = include_database
@@ -207,6 +211,7 @@ class Backup(BasePlugin):
         self.config['backup_plugins'] = include_plugins
         self.config['backup_user_files'] = include_user_files
         self.config['backup_app_core'] = include_app_core
+        self.config['backup_venv'] = include_venv
         self.saveConfig()
         
         # Запускаем создание бэкапа в отдельном потоке
@@ -228,6 +233,7 @@ class Backup(BasePlugin):
                     include_plugins=include_plugins,
                     include_user_files=include_user_files,
                     include_app_core=include_app_core,
+                    include_venv=include_venv,
                     progress_callback=progress_callback
                 )
                 
@@ -237,7 +243,7 @@ class Backup(BasePlugin):
                 # Отправляем финальное сообщение об успехе
                 self.sendDataToWebsocket('backup_progress', {
                     'progress': 100,
-                    'message': 'Резервная копия успешно создана',
+                    'message': _('Backup created successfully'),
                     'backup_path': backup_path,
                     'success': True,
                     'backup_name': backup_name or 'auto'
@@ -247,7 +253,7 @@ class Backup(BasePlugin):
                 # Отправляем сообщение об ошибке
                 self.sendDataToWebsocket('backup_progress', {
                     'progress': 0,
-                    'message': f'Ошибка создания резервной копии: {str(e)}',
+                    'message': _('Error creating backup') + f": {str(e)}",
                     'success': False,
                     'error': str(e),
                     'backup_name': backup_name or 'auto'
@@ -260,7 +266,7 @@ class Backup(BasePlugin):
         # Сразу возвращаем успешный ответ, что процесс запущен
         return jsonify({
             'success': True, 
-            'message': 'Процесс создания резервной копии запущен',
+            'message': _('Starting backup process...'),
             'started': True
         })  
     
@@ -289,7 +295,7 @@ class Backup(BasePlugin):
                 # Отправляем финальное сообщение об успехе
                 self.sendDataToWebsocket('restore_progress', {
                     'progress': 100,
-                    'message': 'Восстановление успешно завершено',
+                    'message': _('Restore completed successfully'),
                     'success': True,
                     'backup_name': backup_name
                 })
@@ -298,7 +304,7 @@ class Backup(BasePlugin):
                 # Отправляем сообщение об ошибке
                 self.sendDataToWebsocket('restore_progress', {
                     'progress': 0,
-                    'message': f'Ошибка восстановления: {str(e)}',
+                    'message': _('Error restoring backup') + f": {str(e)}",
                     'success': False,
                     'error': str(e),
                     'backup_name': backup_name
@@ -313,7 +319,7 @@ class Backup(BasePlugin):
         # Сразу возвращаем успешный ответ, что процесс запущен
         return jsonify({
             'success': True, 
-            'message': 'Процесс восстановления запущен',
+            'message': _('Starting restore process...'),
             'started': True
         })  
     
@@ -421,6 +427,11 @@ class Backup(BasePlugin):
             self.config['backup_plugins'] = bool(request.form.get('backup_plugins'))
             self.config['backup_user_files'] = bool(request.form.get('backup_user_files'))
             self.config['backup_app_core'] = bool(request.form.get('backup_app_core'))
+            self.config['backup_venv'] = bool(request.form.get('backup_venv'))
+
+            venv_directory = request.form.get('venv_directory', '').strip()
+            if venv_directory:
+                self.config['venv_directory'] = venv_directory
             
             # Сохраняем конфигурацию
             self.saveConfig()
@@ -555,6 +566,7 @@ class Backup(BasePlugin):
             'backup_plugins': False,
             'backup_user_files': False,
             'backup_app_core': False,
+            'backup_venv': False,
             'encrypt_backups': False,
             'compress_backups': True,
             'max_backups': 10,
@@ -590,6 +602,21 @@ class Backup(BasePlugin):
                 self.config[key] = value
                 updated = True
 
+        if not self.config.get('venv_directory'):
+            venv_candidates = [
+                os.path.join(Config.APP_DIR, '.venv'),
+                os.path.join(Config.APP_DIR, 'venv'),
+            ]
+            for candidate in venv_candidates:
+                if os.path.isdir(candidate):
+                    self.config['venv_directory'] = candidate
+                    updated = True
+                    break
+            if not self.config.get('venv_directory'):
+                # Если директория не найдена, сохраняем наиболее распространенный вариант
+                self.config['venv_directory'] = os.path.join(Config.APP_DIR, '.venv')
+                updated = True
+
         if updated:
             self.logger.debug("Backup plugin config updated with defaults: %s", defaults)
             self.saveConfig()
@@ -604,16 +631,16 @@ class Backup(BasePlugin):
             try:
                 max_backups = int(max_backups)
                 if max_backups < 1:
-                    return jsonify({'success': False, 'error': 'Количество копий должно быть не менее 1'})
+                    return jsonify({'success': False, 'error': _('Minimum 1 backup required')})
             except ValueError:
-                return jsonify({'success': False, 'error': 'Неверное значение количества копий'})
+                return jsonify({'success': False, 'error': _('Invalid value for number of backups')})
             
             try:
                 storage_duration_days = int(storage_duration_days)
                 if storage_duration_days < 1:
-                    return jsonify({'success': False, 'error': 'Длительность хранения должна быть не менее 1 дня'})
+                    return jsonify({'success': False, 'error': _('Storage duration must be at least 1 day')})
             except ValueError:
-                return jsonify({'success': False, 'error': 'Неверное значение длительности хранения'})
+                return jsonify({'success': False, 'error': _('Invalid value for storage duration')})
             
             # Сохраняем настройки
             self.config['max_backups'] = max_backups
@@ -629,7 +656,7 @@ class Backup(BasePlugin):
                 self.backup_manager.storage_handler = get_storage_handler(self.config)
             
             self.logger.info("Storage settings saved: max_backups=%s, storage_duration_days=%s", max_backups, storage_duration_days)
-            return jsonify({'success': True, 'message': 'Настройки хранения сохранены успешно'})
+            return jsonify({'success': True, 'message': _('Storage settings saved successfully')})
             
         except Exception as e:
             self.logger.error("Error saving storage settings: %s", e)

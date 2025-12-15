@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 from datetime import datetime
+from app import safe_translate as _
 from app.configuration import Config
 from app.core.lib.object import setProperty
 from .database_handlers import get_database_handler
@@ -25,6 +26,7 @@ class BackupManager:
         include_plugins=None,
         include_user_files=None,
         include_app_core=None,
+        include_venv=None,
         progress_callback=None,
     ):
         """Создание резервной копии
@@ -37,10 +39,11 @@ class BackupManager:
             include_plugins: Включать ли директорию плагинов
             include_user_files: Включать ли пользовательские файлы из FILES_DIR
             include_app_core: Включать ли ядро приложения
+            include_venv: Включать ли виртуальное окружение
             progress_callback: Функция для отправки прогресса (progress, message)
         """  
         self.logger.info(
-            "BackupManager: requested backup creation (name=%s, include_database=%s, include_cache=%s, include_files=%s, include_plugins=%s, include_user_files=%s, include_app_core=%s)",
+            "BackupManager: requested backup creation (name=%s, include_database=%s, include_cache=%s, include_files=%s, include_plugins=%s, include_user_files=%s, include_app_core=%s, include_venv=%s)",
             backup_name,
             include_database,
             include_cache,
@@ -48,13 +51,14 @@ class BackupManager:
             include_plugins,
             include_user_files,
             include_app_core,
+            include_venv,
         )
         if not backup_name:  
             backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"  
             self.logger.debug("BackupManager: auto-generated backup name '%s'", backup_name)
         
         if progress_callback:
-            progress_callback(5, 'Инициализация процесса резервного копирования...')
+            progress_callback(5, _('Initializing backup process...'))
               
         backup_path = os.path.join(self.config.get('backup_directory', 'backups'), backup_name)
         os.makedirs(backup_path, exist_ok=True)
@@ -62,38 +66,38 @@ class BackupManager:
         self.logger.debug("BackupManager: ensured backup directory %s exists", backup_path)
         
         if progress_callback:
-            progress_callback(10, 'Подготовка директории для резервной копии...')
+            progress_callback(10, _('Preparing backup directory...'))
           
         # Создание резервной копии базы данных  
         if include_database:
             if progress_callback:
-                progress_callback(20, 'Создание резервной копии базы данных...')
+                progress_callback(20, _('Creating database backup...'))
             db_backup_path = os.path.join(backup_path, 'database')
             self.logger.info("BackupManager: creating database backup in %s", db_backup_path)
             self.db_handler.create_backup(db_backup_path)
             self.logger.debug("BackupManager: database backup completed")
             
             if progress_callback:
-                progress_callback(40, 'Резервная копия базы данных создана')
+                progress_callback(40, _('Database backup created'))
         else:
             if progress_callback:
-                progress_callback(40, 'Пропуск резервного копирования базы данных')
+                progress_callback(40, _('Skipping database backup'))
             self.logger.debug("BackupManager: include_database disabled, skipping database backup")
         
         # Создание резервной копии кеша
         if include_cache:
             if progress_callback:
-                progress_callback(42, 'Создание резервной копии кеша...')
+                progress_callback(42, _('Creating cache backup...'))
             cache_backup_path = os.path.join(backup_path, 'cache')
             self.logger.info("BackupManager: creating cache backup in %s", cache_backup_path)
             self._backup_cache(cache_backup_path)
             self.logger.debug("BackupManager: cache backup completed")
             
             if progress_callback:
-                progress_callback(44, 'Резервная копия кеша создана')
+                progress_callback(44, _('Cache backup created'))
         else:
             if progress_callback:
-                progress_callback(44, 'Пропуск резервного копирования кеша')
+                progress_callback(44, _('Skipping cache backup'))
             self.logger.debug("BackupManager: include_cache disabled, skipping cache backup")
           
         # Резервное копирование файлов системы  
@@ -102,13 +106,14 @@ class BackupManager:
             resource_flags = {
                 'backup_plugins': include_plugins if include_plugins is not None else self.config.get('backup_plugins', False),
                 'backup_app_core': include_app_core if include_app_core is not None else self.config.get('backup_app_core', False),
+                'backup_venv': include_venv if include_venv is not None else self.config.get('backup_venv', False),
             }
             if progress_callback:
-                progress_callback(45, 'Резервное копирование системных файлов...')
+                progress_callback(45, _('Backing up system files...'))
             copied_resources = self._backup_system_files(backup_path, progress_callback, resource_flags)
         else:
             if progress_callback:
-                progress_callback(60, 'Пропуск копирования системных файлов')
+                progress_callback(60, _('Skipping system files backup'))
             self.logger.debug("BackupManager: include_files disabled, skipping system file copy step")
             self.logger.debug("BackupManager: include_files disabled, skipping system file copy")
 
@@ -116,20 +121,20 @@ class BackupManager:
         user_files_copied = False
         if include_user_files is not None and include_user_files:
             if progress_callback:
-                progress_callback(62, 'Резервное копирование пользовательских файлов...')
+                progress_callback(62, _('Backing up user files...'))
             user_files_copied = self._backup_user_files(backup_path, progress_callback)
             if progress_callback:
-                progress_callback(65, 'Пользовательские файлы скопированы')
+                progress_callback(65, _('User files copied'))
         elif include_user_files is None and self.config.get('backup_user_files', False):
             if progress_callback:
-                progress_callback(62, 'Резервное копирование пользовательских файлов...')
+                progress_callback(62, _('Backing up user files...'))
             user_files_copied = self._backup_user_files(backup_path, progress_callback)
             if progress_callback:
-                progress_callback(65, 'Пользовательские файлы скопированы')
+                progress_callback(65, _('User files copied'))
           
         # Создание метаданных  
         if progress_callback:
-            progress_callback(70, 'Создание метаданных резервной копии...')
+            progress_callback(70, _('Creating backup metadata...'))
         metadata = {  
             'name': backup_name,  
             'created_at': datetime.now().isoformat(),  
@@ -148,12 +153,12 @@ class BackupManager:
             json.dump(metadata, f, indent=2)  
         
         if progress_callback:
-            progress_callback(75, 'Метаданные созданы')
+            progress_callback(75, _('Metadata created'))
           
         # Сжатие и шифрование  
         if self.config.get('compress_backups', True):  
             if progress_callback:
-                progress_callback(80, 'Сжатие резервной копии...')
+                progress_callback(80, _('Compressing backup...'))
             backup_path = compress_backup(backup_path)
             self.logger.debug("BackupManager: backup compressed to %s", backup_path)
             
@@ -168,16 +173,16 @@ class BackupManager:
                     self.logger.warning("BackupManager: failed to save external metadata: %s", e)
             
             if progress_callback:
-                progress_callback(90, 'Сжатие завершено')
+                progress_callback(90, _('Compression finished'))
           
         if self.config.get('encrypt_backups', False):  
             if progress_callback:
-                progress_callback(92, 'Шифрование резервной копии...')
+                progress_callback(92, _('Encrypting backup...'))
             old_backup_path = backup_path
             # encrypt_backup возвращает tuple (encrypted_path, encryption_key)
             encrypted_result = encrypt_backup(backup_path, self.config.get('encryption_key'))
             if isinstance(encrypted_result, tuple):
-                backup_path, _ = encrypted_result  # Распаковываем tuple, ключ нам не нужен (уже есть в config)
+                backup_path, encryption_key_unused = encrypted_result  # Распаковываем tuple, ключ нам не нужен (уже есть в config)
             else:
                 backup_path = encrypted_result
             self.logger.debug("BackupManager: backup encrypted to %s", backup_path)
@@ -194,10 +199,10 @@ class BackupManager:
                         self.logger.warning("BackupManager: failed to move external metadata: %s", e)
             
             if progress_callback:
-                progress_callback(95, 'Шифрование завершено')
+                progress_callback(95, _('Encryption finished'))
         
         if progress_callback:
-            progress_callback(100, 'Резервная копия успешно создана')
+            progress_callback(100, _('Backup created successfully'))
         self.logger.info("BackupManager: backup '%s' successfully created at %s", backup_name, backup_path)
           
         return backup_path
@@ -211,7 +216,7 @@ class BackupManager:
           
         # Копирование конфигурационных файлов  
         if progress_callback:
-            progress_callback(50, 'Копирование конфигурационных файлов...')
+            progress_callback(50, _('Copying configuration files...'))
         config_files = ['config.yaml', 'sample_config.yaml']
         for config_file in config_files:
             if os.path.exists(config_file):
@@ -221,6 +226,7 @@ class BackupManager:
                 self.logger.debug("BackupManager: config file %s not found, skipping", config_file)
                   
         resource_flags = resource_flags or {}
+        venv_path = self._get_venv_path()
 
         resource_definitions = [
             {
@@ -232,8 +238,8 @@ class BackupManager:
                 'alias': 'plugins',
                 'start_progress': 55,
                 'end_progress': 58,
-                'start_message': 'Копирование плагинов...',
-                'end_message': 'Плагины скопированы',
+                'start_message': _('Copying plugins...'),
+                'end_message': _('Plugins copied'),
             },
             {
                 'enabled': resource_flags.get('backup_app_core', self.config.get('backup_app_core', False)),
@@ -241,8 +247,18 @@ class BackupManager:
                 'alias': 'app',
                 'start_progress': 60,
                 'end_progress': 63,
-                'start_message': 'Копирование ядра приложения...',
-                'end_message': 'Ядро приложения скопировано',
+                'start_message': _('Copying app core...'),
+                'end_message': _('App core copied'),
+            },
+            {
+                'enabled': resource_flags.get('backup_venv', self.config.get('backup_venv', False)),
+                'path': venv_path,
+                'alias': 'venv',
+                'start_progress': 63,
+                'end_progress': 66,
+                'start_message': _('Copying virtual environment...'),
+                'end_message': _('Virtual environment copied'),
+                'allow_venv': True,
             },
         ]
 
@@ -271,7 +287,11 @@ class BackupManager:
                 progress_callback(resource['start_progress'], resource['start_message'])
 
             destination = os.path.join(files_backup_path, resource['alias'])
-            if self._copy_directory(normalized_source, destination):
+            if self._copy_directory(
+                normalized_source,
+                destination,
+                allow_venv=resource.get('allow_venv', False),
+            ):
                 manifest.append({
                     'alias': resource['alias'],
                     'target': normalized_source,
@@ -313,7 +333,7 @@ class BackupManager:
             return False
 
         if progress_callback:
-            progress_callback(63, 'Копирование пользовательских файлов...')
+            progress_callback(63, _('Copying user files...'))
 
         destination = files_backup_path
         if self._copy_directory(normalized_source, destination):
@@ -323,7 +343,7 @@ class BackupManager:
                 destination,
             )
             if progress_callback:
-                progress_callback(64, 'Пользовательские файлы скопированы')
+                progress_callback(64, _('User files copied'))
             return True
         else:
             self.logger.error(
@@ -390,6 +410,21 @@ class BackupManager:
         except Exception:  
             pass  
         return "unknown"  
+
+    def _get_venv_path(self):
+        """Определение пути к виртуальной среде из конфига или популярных расположений."""
+        configured_path = (self.config or {}).get('venv_directory')
+        if configured_path:
+            return os.path.abspath(configured_path)
+
+        candidates = [
+            os.path.join(Config.APP_DIR, '.venv'),
+            os.path.join(Config.APP_DIR, 'venv'),
+        ]
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                return os.path.abspath(candidate)
+        return None  
           
     def restore_backup(self, backup_name, progress_callback=None):  
         """Восстановление из резервной копии
@@ -404,12 +439,12 @@ class BackupManager:
             backup_name.endswith('.encrypted.tar.gz'),
         )
         if progress_callback:
-            progress_callback(5, 'Инициализация процесса восстановления...')
+            progress_callback(5, _('Initializing restore process...'))
             
         backup_path = os.path.join(self.config.get('backup_directory', 'backups'), backup_name)  
         
         if progress_callback:
-            progress_callback(10, 'Проверка резервной копии...')
+            progress_callback(10, _('Checking backup...'))
           
         if not os.path.exists(backup_path):  
             raise FileNotFoundError(f"Backup {backup_name} not found")
@@ -422,7 +457,7 @@ class BackupManager:
             if not self.config.get('encryption_key'):  
                 raise ValueError("Encryption key required for encrypted backup")  
             if progress_callback:
-                progress_callback(15, 'Расшифровка резервной копии...')
+                progress_callback(15, _('Decrypting backup...'))
             self.logger.info("BackupManager: decrypting encrypted backup %s", backup_path)
             # decrypt_backup может возвращать только путь (проверяем)
             decrypted_result = decrypt_backup(backup_path, self.config.get('encryption_key'))
@@ -432,13 +467,13 @@ class BackupManager:
                 backup_path = decrypted_result
             self.logger.debug("BackupManager: decrypted backup located at %s", backup_path)
             if progress_callback:
-                progress_callback(20, 'Расшифровка завершена')
+                progress_callback(20, _('Decryption completed'))
         
         # Проверка на сжатый архив (tar.gz) - нужно распаковать
         # Проверяем, является ли путь файлом с расширением .tar.gz
         if os.path.isfile(backup_path) and backup_path.endswith('.tar.gz'):
             if progress_callback:
-                progress_callback(22, 'Распаковка архива резервной копии...')
+                progress_callback(22, _('Extracting backup archive...'))
             # Создаем временную директорию для распаковки
             import tempfile
             temp_extract_dir = tempfile.mkdtemp(prefix='backup_restore_')
@@ -446,7 +481,7 @@ class BackupManager:
                 backup_path = decompress_backup(backup_path, temp_extract_dir)
                 self.logger.debug("BackupManager: archive extracted into %s", backup_path)
                 if progress_callback:
-                    progress_callback(25, 'Архив распакован')
+                    progress_callback(25, _('Archive extracted'))
             except Exception as e:
                 # Очищаем временную директорию при ошибке
                 if temp_extract_dir and os.path.exists(temp_extract_dir):
@@ -455,7 +490,7 @@ class BackupManager:
               
         # Загрузка метаданных  
         if progress_callback:
-            progress_callback(27, 'Загрузка метаданных резервной копии...')
+            progress_callback(27, _('Loading backup metadata...'))
         metadata_file = os.path.join(backup_path, 'metadata.json')
         if not os.path.exists(metadata_file):
             if temp_extract_dir and os.path.exists(temp_extract_dir):
@@ -472,59 +507,59 @@ class BackupManager:
         )
         
         if progress_callback:
-            progress_callback(30, 'Метаданные загружены')
+            progress_callback(30, _('Metadata loaded'))
               
         # Восстановление базы данных  
         if metadata.get('includes_database', True):  # По умолчанию True для совместимости со старыми бэкапами
             if progress_callback:
-                progress_callback(35, 'Восстановление базы данных...')
+                progress_callback(35, _('Restoring database...'))
             db_backup_path = os.path.join(backup_path, 'database')
             self.logger.info("BackupManager: restoring database from %s", db_backup_path)
             self.db_handler.restore_backup(db_backup_path)
             self.logger.debug("BackupManager: database restore completed")
             
             if progress_callback:
-                progress_callback(60, 'База данных восстановлена')
+                progress_callback(60, _('Database restored'))
         else:
             if progress_callback:
-                progress_callback(60, 'Пропуск восстановления базы данных')
+                progress_callback(60, _('Skipping database restore'))
             self.logger.debug("BackupManager: metadata indicates no database, skipping restore step")
         
         # Восстановление кеша
         if metadata.get('includes_cache', False):
             if progress_callback:
-                progress_callback(62, 'Восстановление кеша...')
+                progress_callback(62, _('Restoring cache...'))
             cache_backup_path = os.path.join(backup_path, 'cache')
             self._restore_cache(cache_backup_path)
             self.logger.debug("BackupManager: cache restore completed")
             
             if progress_callback:
-                progress_callback(64, 'Кеш восстановлен')
+                progress_callback(64, _('Cache restored'))
         else:
             if progress_callback:
-                progress_callback(64, 'Пропуск восстановления кеша')
+                progress_callback(64, _('Skipping cache restore'))
             self.logger.debug("BackupManager: metadata indicates no cache, skipping restore step")
           
         # Восстановление файлов системы  
         if metadata.get('includes_files', False):  
             if progress_callback:
-                progress_callback(65, 'Восстановление системных файлов...')
+                progress_callback(65, _('Restoring system files...'))
             self._restore_system_files(backup_path, progress_callback, metadata)
             self.logger.debug("BackupManager: system files restore completed")
         else:
             if progress_callback:
-                progress_callback(75, 'Пропуск восстановления системных файлов')
+                progress_callback(75, _('Skipping system files restore'))
             self.logger.debug("BackupManager: metadata indicates no system files, skipping restore step")
 
         # Восстановление пользовательских файлов (отдельно от системных)
         if metadata.get('includes_user_files', False):
             if progress_callback:
-                progress_callback(77, 'Восстановление пользовательских файлов...')
+                progress_callback(77, _('Restoring user files...'))
             self._restore_user_files(backup_path, progress_callback)
             self.logger.debug("BackupManager: user files restore completed")
         else:
             if progress_callback:
-                progress_callback(80, 'Пропуск восстановления пользовательских файлов')
+                progress_callback(80, _('Skipping user files restore'))
             self.logger.debug("BackupManager: metadata indicates no user files, skipping restore step")
               
         # TODO Очистка кэша объектов после восстановления  
@@ -537,7 +572,7 @@ class BackupManager:
         # Очистка временной директории после успешного восстановления
         if temp_extract_dir and os.path.exists(temp_extract_dir):
             if progress_callback:
-                progress_callback(95, 'Очистка временных файлов...')
+                progress_callback(95, _('Cleaning temporary files...'))
             try:
                 shutil.rmtree(temp_extract_dir, ignore_errors=True)
                 self.logger.debug("BackupManager: temporary directory %s removed", temp_extract_dir)
@@ -545,7 +580,7 @@ class BackupManager:
                 self.logger.warning("BackupManager: failed to remove temp dir %s: %s", temp_extract_dir, cleanup_error)
         
         if progress_callback:
-            progress_callback(100, 'Восстановление успешно завершено')
+            progress_callback(100, _('Restore completed successfully'))
         self.logger.info("BackupManager: restore for backup '%s' completed successfully", backup_name)
 
         setProperty("SystemVar.NeedRestart", True, "Backup restore " + backup_name)
@@ -559,7 +594,7 @@ class BackupManager:
           
         if os.path.exists(files_backup_path):  
             if progress_callback:
-                progress_callback(70, 'Восстановление конфигурационных файлов...')
+                progress_callback(70, _('Restoring configuration files...'))
 
             resource_map = {}
             if metadata:
@@ -580,10 +615,15 @@ class BackupManager:
                 'app',
                 self.config.get('app_core_directory', Config.APP_DIR)
             )
+            resource_map.setdefault(
+                'venv',
+                self.config.get('venv_directory') or self._get_venv_path()
+            )
 
             progress_messages = {
-                'plugins': 'Восстановление плагинов...',
-                'app': 'Восстановление ядра приложения...',
+                'plugins': _('Restoring plugins...'),
+                'app': _('Restoring app core...'),
+                'venv': _('Restoring virtual environment...'),
             }
 
             # Восстановление конфигурационных файлов и директорий  
@@ -594,10 +634,16 @@ class BackupManager:
                 elif os.path.isdir(item_path):  
                     target_path = resource_map.get(item) or item
                     if progress_callback:
-                        progress_callback(75, progress_messages.get(item, f'Восстановление директории: {item}...'))
+                        progress_callback(
+                            75,
+                            progress_messages.get(
+                                item,
+                                _('Restoring directory: {item}...').format(item=item),
+                            ),
+                        )
                     self._restore_directory(item_path, target_path)
             if progress_callback:
-                progress_callback(76, 'Системные файлы восстановлены')
+                progress_callback(76, _('System files restored'))
 
     def _restore_user_files(self, backup_path, progress_callback=None):
         """Восстановление пользовательских файлов (отдельно от системных)"""
@@ -615,7 +661,7 @@ class BackupManager:
         normalized_destination = os.path.abspath(user_files_path)
 
         if progress_callback:
-            progress_callback(78, 'Восстановление пользовательских файлов...')
+            progress_callback(78, _('Restoring user files...'))
 
         try:
             self._restore_directory(user_files_backup_path, normalized_destination)
@@ -625,7 +671,7 @@ class BackupManager:
                 normalized_destination,
             )
             if progress_callback:
-                progress_callback(79, 'Пользовательские файлы восстановлены')
+                progress_callback(79, _('User files restored'))
         except Exception as exc:
             self.logger.error(
                 "BackupManager: failed to restore user files from %s to %s: %s",
@@ -698,14 +744,16 @@ class BackupManager:
         """Проверка целостности резервной копии - делегирование к storage_handler"""  
         return self.storage_handler.verify_backup(backup_name)
 
-    def _copy_directory(self, source_path, destination_path):
+    def _copy_directory(self, source_path, destination_path, allow_venv=False):
         """Копирование директории с заменой существующего содержимого."""
         def ignore_patterns(_directory, files):
             """Функция для игнорирования служебных папок и файлов"""
             ignored = set()
             for name in files:
-                # Игнорируем .git и __pycache__
-                if name in {'.git', '__pycache__', '.gitignore', '.pytest_cache', '.venv', 'venv', 'node_modules'}:
+                # Игнорируем служебные директории и файлы
+                if name in {'.git', '__pycache__', '.gitignore', '.pytest_cache', 'node_modules'}:
+                    ignored.add(name)
+                elif not allow_venv and name in {'.venv', 'venv'}:
                     ignored.add(name)
                 # Игнорируем .pyc файлы
                 elif name.endswith('.pyc') or name.endswith('.pyo'):
