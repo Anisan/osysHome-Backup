@@ -556,6 +556,7 @@
 {% endblock %}
 
 {% block javascripts %}
+{{ super() }}
 <script>
 $(document).ready(function() {
     const modal = new bootstrap.Modal(document.getElementById('backupProgressModal'));

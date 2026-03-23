@@ -46,7 +46,6 @@
   "Decryption completed": "Расшифровка завершена",
   "Default Backup Parameters": "Параметры резервного копирования по умолчанию",
   "Default: 0 2 * * * (daily at 2:00 AM)": "По умолчанию: 0 2 * * * (каждый день в 2:00)",
-  "Download": "Скачать",
   "Enable automatic backup": "Включить автоматическое резервное копирование",
   "Enable backup encryption": "Включить шифрование резервных копий",
   "Encrypted": "Шифр.",
@@ -170,7 +169,7 @@
   "default cache dir": "директория кеша по умолчанию",
   "default files dir": "директория файлов по умолчанию",
   "default plugins dir": "директория плагинов по умолчанию",
-  "default venv path": "",
-  "e.g. /path/to/.venv": "",
+  "default venv path": "путь к виртуальному окружению по умолчанию",
+  "e.g. /path/to/.venv": "например, /path/to/.venv",
   "no external tools required": "внешние утилиты не требуются"
 }
