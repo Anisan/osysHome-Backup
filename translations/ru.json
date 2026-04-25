@@ -20,7 +20,6 @@
   "Backup uploaded successfully": "Резервная копия загружена успешно",
   "Backups older than this number of days will be automatically deleted": "Резервные копии старше указанного количества дней будут автоматически удалены",
   "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration": "Оба условия применяются: резервные копии будут удалены, если превышено максимальное количество ИЛИ если они старше указанной длительности",
-  "Cache": "Кеш",
   "Cache backup created": "Резервная копия кеша создана",
   "Cache restored": "Кеш восстановлен",
   "Checking backup...": "Проверка резервной копии...",

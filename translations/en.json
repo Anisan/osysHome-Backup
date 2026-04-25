@@ -20,7 +20,6 @@
   "Backup uploaded successfully": "Backup uploaded successfully",
   "Backups older than this number of days will be automatically deleted": "Backups older than this number of days will be automatically deleted",
   "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration": "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration",
-  "Cache": "Cache",
   "Cache backup created": "Cache backup created",
   "Cache restored": "Cache restored",
   "Checking backup...": "Checking backup...",
