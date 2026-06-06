@@ -2,6 +2,35 @@
 {% block breadcrumb %}
 <li class="breadcrumb-item"><a href="Backup">Backup</a></li>
 {% endblock %}
+{% block stylesheets %}
+{{ super() }}
+<style>
+.backup-list .backup-item {
+    overflow: hidden;
+}
+.backup-list .backup-item .card-title {
+    word-break: break-word;
+}
+.backup-list .backup-item-meta > span {
+    white-space: nowrap;
+}
+.backup-list .backup-item-actions .btn {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+@media (max-width: 575.98px) {
+    .backup-list .backup-item-actions .btn .btn-label {
+        display: none;
+    }
+    .backup-list .backup-item-actions .btn .fas,
+    .backup-list .backup-item-actions .btn .fa {
+        margin: 0 !important;
+    }
+}
+</style>
+{% endblock %}
 {% block module %}
 <div class="container-fluid">  
     <div class="row">  
@@ -179,91 +208,99 @@
                         <i class="fas fa-cog"></i> {{ _('Storage Settings') }}
                     </button>
                 </div>  
-                <div class="card-body">
+                <div class="card-body backup-list">
                     {% if backups %}
-                    {% for backup in backups %}  
-                    <div class="backup-item mb-3 p-3 border rounded">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div class="flex-grow-1">
-                                <div class="d-flex align-items-center mb-2 flex-wrap">
-                                    <h6 class="mb-0 me-2">{{ backup.name }}</h6>
-                                    {% if backup.includes_database %}
-                                    <span class="badge bg-primary me-1">
-                                        <i class="fas fa-database"></i> {{ _('Database') }}
-                                    </span>
-                                    {% endif %}
-                                    {% if backup.includes_cache %}
-                                    <span class="badge bg-info me-1">
-                                        <i class="fas fa-memory"></i> {{ _('Cache') }}
-                                    </span>
-                                    {% endif %}
-                                    {% if backup.includes_files %}
-                                    <span class="badge bg-secondary me-1">
-                                        <i class="fas fa-file"></i> {{ _('System Files') }}
-                                    </span>
-                                    {% endif %}
-                                    {% if backup.includes_user_files %}
-                                    <span class="badge bg-success me-1">
-                                        <i class="fas fa-folder"></i> {{ _('User Files') }}
-                                    </span>
-                                    {% endif %}
-                                    {% if backup.backup_resources %}
-                                        {% for resource in backup.backup_resources %}
-                                            {% if resource.alias == 'plugins' %}
-                                            <span class="badge bg-warning me-1">
-                                                <i class="fas fa-puzzle-piece"></i> {{ _('Plugins') }}
-                                            </span>
-                                            {% elif resource.alias == 'app' %}
-                                            <span class="badge bg-dark me-1">
-                                                <i class="fas fa-code"></i> {{ _('App Core') }}
-                                            </span>
-                                            {% elif resource.alias == 'venv' %}
-                                            <span class="badge bg-secondary me-1">
-                                                <i class="fas fa-terminal"></i> {{ _('Virtual Env') }}
-                                            </span>
-                                            {% endif %}
-                                        {% endfor %}
-                                    {% endif %}
-                                    {% if backup.type == 'archive' %}
-                                    <span class="badge bg-secondary me-1">
-                                        <i class="fas fa-file-archive"></i> {{ _('Archived') }}
-                                    </span>
-                                    {% endif %}
-                                    {% if backup.encrypted %}
-                                    <span class="badge bg-danger me-1">
-                                        <i class="fas fa-lock"></i> {{ _('Encrypted') }}
-                                    </span>
-                                    {% endif %}
-                                </div>
-                                <div>
-                                    <small class="text-muted">
-                                        <i class="fas fa-clock"></i> {{ backup.created_at }}
-                                    </small>
-                                    <small class="text-muted ms-3">
-                                        <i class="fas fa-hdd"></i> {{ format_size(backup.size) }}
-                                    </small>
-                                    {% if backup.database_type %}
-                                    <small class="text-muted ms-3">
-                                        <i class="fas fa-database"></i> {{ backup.database_type }}
-                                    </small>
-                                    {% endif %}
-                                </div>
+                    {% for backup in backups %}
+                    <div class="backup-item card mb-3 border shadow-sm">
+                        <div class="card-body pb-2">
+                            <h6 class="card-title mb-2">{{ backup.name }}</h6>
+                            <div class="d-flex flex-wrap gap-1 mb-2">
+                                {% if backup.includes_database %}
+                                <span class="badge bg-primary">
+                                    <i class="fas fa-database"></i> {{ _('Database') }}
+                                </span>
+                                {% endif %}
+                                {% if backup.includes_cache %}
+                                <span class="badge bg-info">
+                                    <i class="fas fa-memory"></i> {{ _('Cache') }}
+                                </span>
+                                {% endif %}
+                                {% if backup.includes_files %}
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-file"></i> {{ _('System Files') }}
+                                </span>
+                                {% endif %}
+                                {% if backup.includes_user_files %}
+                                <span class="badge bg-success">
+                                    <i class="fas fa-folder"></i> {{ _('User Files') }}
+                                </span>
+                                {% endif %}
+                                {% if backup.backup_resources %}
+                                    {% for resource in backup.backup_resources %}
+                                        {% if resource.alias == 'plugins' %}
+                                        <span class="badge bg-warning">
+                                            <i class="fas fa-puzzle-piece"></i> {{ _('Plugins') }}
+                                        </span>
+                                        {% elif resource.alias == 'app' %}
+                                        <span class="badge bg-dark">
+                                            <i class="fas fa-code"></i> {{ _('App Core') }}
+                                        </span>
+                                        {% elif resource.alias == 'venv' %}
+                                        <span class="badge bg-secondary">
+                                            <i class="fas fa-terminal"></i> {{ _('Virtual Env') }}
+                                        </span>
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endif %}
+                                {% if backup.type == 'archive' %}
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-file-archive"></i> {{ _('Archived') }}
+                                </span>
+                                {% endif %}
+                                {% if backup.encrypted %}
+                                <span class="badge bg-danger">
+                                    <i class="fas fa-lock"></i> {{ _('Encrypted') }}
+                                </span>
+                                {% endif %}
                             </div>
-                            <div class="ms-3 d-flex align-items-center">
-                                <div class="btn-group" role="group">
-                                    <button class="btn btn-sm btn-success" onclick="restoreBackup('{{ backup.name }}')">
-                                        <i class="fas fa-undo"></i> {{ _('Restore') }}
-                                    </button>
-                                    <a href="/admin/Backup?action=download&backup_name={{ backup.name }}" class="btn btn-sm btn-info" download>
-                                        <i class="fas fa-download"></i> {{ _('Download') }}
-                                    </a>
-                                    <button class="btn btn-sm btn-danger" onclick="deleteBackup('{{ backup.name }}')">
-                                        <i class="fas fa-trash"></i> {{ _('Delete') }}
-                                    </button>
-                                </div>
+                            <div class="backup-item-meta d-flex flex-wrap gap-2 gap-md-3 small text-muted">
+                                <span>
+                                    <i class="fas fa-clock"></i> {{ backup.created_at }}
+                                </span>
+                                <span>
+                                    <i class="fas fa-hdd"></i> {{ format_size(backup.size) }}
+                                </span>
+                                {% if backup.database_type %}
+                                <span>
+                                    <i class="fas fa-database"></i> {{ backup.database_type }}
+                                </span>
+                                {% endif %}
                             </div>
                         </div>
-                    </div>  
+                        <div class="card-footer bg-transparent border-top pt-0 pb-3 px-3">
+                            <div class="backup-item-actions d-flex flex-nowrap gap-2 w-100" role="group" aria-label="{{ _('Backup actions') }}">
+                                <button type="button" class="btn btn-sm btn-success flex-fill"
+                                        onclick="restoreBackup('{{ backup.name }}')"
+                                        title="{{ _('Restore') }}">
+                                    <i class="fas fa-undo"></i>
+                                    <span class="btn-label">{{ _('Restore') }}</span>
+                                </button>
+                                <a href="/admin/Backup?action=download&backup_name={{ backup.name }}"
+                                   class="btn btn-sm btn-info flex-fill"
+                                   download
+                                   title="{{ _('Download') }}">
+                                    <i class="fas fa-download"></i>
+                                    <span class="btn-label">{{ _('Download') }}</span>
+                                </a>
+                                <button type="button" class="btn btn-sm btn-danger flex-fill"
+                                        onclick="deleteBackup('{{ backup.name }}')"
+                                        title="{{ _('Delete') }}">
+                                    <i class="fas fa-trash"></i>
+                                    <span class="btn-label">{{ _('Delete') }}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     {% endfor %}
                     {% else %}
                     <div class="text-center text-muted py-4">
