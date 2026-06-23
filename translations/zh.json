@@ -23,6 +23,7 @@
   "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration": "两个条件均适用：如果备份超过最大数量或早于指定的持续时间，则备份将被删除",
   "Cache backup created": "已创建缓存备份",
   "Cache restored": "缓存已恢复",
+  "Cannot restore: the following modules could not be stopped: %(modules)s": "无法恢复：无法停止以下模块：%(modules)s",
   "Checking backup...": "正在检查备份...",
   "Cleaning temporary files...": "清理临时文件...",
   "Common examples": "常见示例",
@@ -143,6 +144,7 @@
   "Skipping user files restore": "跳过用户文件恢复",
   "Starting backup process...": "开始备份过程...",
   "Starting restore process...": "开始恢复过程...",
+  "Stopping plugin cycles...": "停止插件循环...",
   "Storage Settings": "存储设置",
   "Storage duration (days)": "储存期限（天）",
   "Storage duration must be at least 1 day": "存储期限必须至少为 1 天",
@@ -170,6 +172,7 @@
   "default files dir": "默认文件目录",
   "default plugins dir": "默认插件目录",
   "default venv path": "默认 venv 路径",
+  "did not stop within %(timeout)s seconds": "在 %(timeout)s 秒内没有停止",
   "e.g. /path/to/.venv": "例如/路径/到/.venv",
   "no external tools required": "无需外部工具"
 }

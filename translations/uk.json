@@ -23,6 +23,7 @@
   "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration": "Обидві умови застосовуються: резервні копії будуть видалені, якщо перевищено максимальну кількість АБО якщо вони старші за зазначену тривалість",
   "Cache backup created": "Резервна копія кешу створена",
   "Cache restored": "Кеш відновлено",
+  "Cannot restore: the following modules could not be stopped: %(modules)s": "Неможливо відновити: не вдалося відновити модулі: %(modules)s",
   "Checking backup...": "Перевірка резервної копії...",
   "Cleaning temporary files...": "Очищення тимчасових файлів...",
   "Common examples": "Приклади використання",
@@ -143,6 +144,7 @@
   "Skipping user files restore": "Пропуск відновлення файлів користувача",
   "Starting backup process...": "Запуск процесу резервного копіювання...",
   "Starting restore process...": "Запуск процесу відновлення...",
+  "Stopping plugin cycles...": "Установка циклів модулів...",
   "Storage Settings": "Налаштування зберігання",
   "Storage duration (days)": "Тривалість зберігання (днів)",
   "Storage duration must be at least 1 day": "Тривалість зберігання має бути не менше 1 дня",
@@ -170,6 +172,7 @@
   "default files dir": "директорія файлів за замовчуванням",
   "default plugins dir": "директорія плагінів за замовчуванням",
   "default venv path": "шлях до віртуального оточення за умовчанням",
+  "did not stop within %(timeout)s seconds": "не остановився за %(timeout)s с",
   "e.g. /path/to/.venv": "наприклад, /path/to/.venv",
   "no external tools required": "зовнішні утиліти не потрібні"
 }

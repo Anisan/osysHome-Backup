@@ -23,6 +23,7 @@
   "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration": "両方の条件が適用されます: バックアップが最大数を超えた場合、またはバックアップが指定された期間よりも古い場合、バックアップは削除されます。",
   "Cache backup created": "キャッシュバックアップが作成されました",
   "Cache restored": "キャッシュが復元されました",
+  "Cannot restore: the following modules could not be stopped: %(modules)s": "復元できません: 次のモジュールを停止できませんでした: %(modules)s",
   "Checking backup...": "バックアップを確認しています...",
   "Cleaning temporary files...": "一時ファイルをクリーニングしています...",
   "Common examples": "よくある例",
@@ -143,6 +144,7 @@
   "Skipping user files restore": "ユーザーファイルの復元をスキップする",
   "Starting backup process...": "バックアッププロセスを開始しています...",
   "Starting restore process...": "復元プロセスを開始しています...",
+  "Stopping plugin cycles...": "プラグイン サイクルを停止しています...",
   "Storage Settings": "ストレージ設定",
   "Storage duration (days)": "保管期間 (日)",
   "Storage duration must be at least 1 day": "保管期間は少なくとも 1 日である必要があります",
@@ -170,6 +172,7 @@
   "default files dir": "デフォルトのファイルディレクトリ",
   "default plugins dir": "デフォルトのプラグインディレクトリ",
   "default venv path": "デフォルトのvenvパス",
+  "did not stop within %(timeout)s seconds": "%(timeout)s 秒以内に停止しませんでした",
   "e.g. /path/to/.venv": "例えば/パス/へ/.venv",
   "no external tools required": "外部ツールは必要ありません"
 }

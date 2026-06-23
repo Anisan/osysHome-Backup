@@ -23,6 +23,7 @@
   "Both conditions are applied: backups will be deleted if they exceed the maximum number OR if they are older than the specified duration": "Les deux conditions sont appliquées : les sauvegardes seront supprimées si elles dépassent le nombre maximum OU si elles sont plus anciennes que la durée spécifiée",
   "Cache backup created": "Sauvegarde du cache créée",
   "Cache restored": "Cache restauré",
+  "Cannot restore: the following modules could not be stopped: %(modules)s": "Restauration impossible : les modules suivants n'ont pas pu être arrêtés : %(modules)s",
   "Checking backup...": "Vérification de la sauvegarde...",
   "Cleaning temporary files...": "Nettoyage des fichiers temporaires...",
   "Common examples": "Exemples courants",
@@ -143,6 +144,7 @@
   "Skipping user files restore": "Ignorer la restauration des fichiers utilisateur",
   "Starting backup process...": "Démarrage du processus de sauvegarde...",
   "Starting restore process...": "Démarrage du processus de restauration...",
+  "Stopping plugin cycles...": "Arrêt des cycles de plugins...",
   "Storage Settings": "Paramètres de stockage",
   "Storage duration (days)": "Durée de stockage (jours)",
   "Storage duration must be at least 1 day": "La durée de stockage doit être d'au moins 1 jour",
@@ -170,6 +172,7 @@
   "default files dir": "répertoire des fichiers par défaut",
   "default plugins dir": "répertoire des plugins par défaut",
   "default venv path": "chemin venv par défaut",
+  "did not stop within %(timeout)s seconds": "ne s'est pas arrêté dans les %(timeout)s secondes",
   "e.g. /path/to/.venv": "par ex. /chemin/vers/.venv",
   "no external tools required": "aucun outil externe requis"
 }

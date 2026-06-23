@@ -1,6 +1,32 @@
 import os
+import time
 
 import sqlite3
+
+from app.database import engine
+from app.extensions import db as flask_db
+from app.core.main.ObjectManager import shutdown_batch_writer
+
+
+def _release_app_sqlite_connections():
+    """Закрыть пул соединений приложения, чтобы файл SQLite можно было заменить."""
+    shutdown_batch_writer()
+
+    try:
+        flask_db.session.remove()
+    except Exception:
+        pass
+
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+
+    try:
+        flask_db.engine.dispose()
+    except Exception:
+        pass
+
 
 class SQLiteHandler:
     def __init__(self, database_uri, logger):
@@ -107,6 +133,10 @@ class SQLiteHandler:
                     dst_conn.close()
             finally:
                 src_conn.close()
+
+            # Закрываем пул соединений приложения, иначе os.replace получит EBUSY.
+            _release_app_sqlite_connections()
+            time.sleep(0.2)
 
             # Атомарно заменяем основной файл БД.
             os.replace(tmp_db_path, self.db_path)

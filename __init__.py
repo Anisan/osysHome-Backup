@@ -273,8 +273,6 @@ class Backup(BasePlugin):
     def _restore_backup(self, request):  
         """Восстановление из резервной копии через веб-интерфейс"""  
         backup_name = request.form.get('backup_name')  
-
-        stopped_cycles = self._stop_all_cycles()
         
         # Запускаем восстановление в отдельном потоке
         def restore_thread():
@@ -285,6 +283,27 @@ class Backup(BasePlugin):
                     'message': message,
                     'backup_name': backup_name
                 })
+
+            progress_callback(1, _('Stopping plugin cycles...'))
+            stopped_cycles, failed_cycles = self._stop_all_cycles()
+            if failed_cycles:
+                modules = ', '.join(
+                    f"{item['name']} ({item['detail']})"
+                    for item in failed_cycles
+                )
+                error_message = _('Cannot restore: the following modules could not be stopped: %(modules)s') % {
+                    'modules': modules,
+                }
+                self.logger.error(error_message)
+                self.sendDataToWebsocket('restore_progress', {
+                    'progress': 0,
+                    'message': error_message,
+                    'success': False,
+                    'error': error_message,
+                    'backup_name': backup_name,
+                })
+                self._resume_cycles(stopped_cycles)
+                return
             
             try:
                 self.backup_manager.restore_backup(
@@ -526,21 +545,47 @@ class Backup(BasePlugin):
         except Exception as e:
             self.logger.error("Error setting up auto backup task: %s", e)
 
-    def _stop_all_cycles(self):
-        """Останавливаем циклы всех модулей перед восстановлением"""
+    def _stop_all_cycles(self, timeout=30):
+        """Останавливаем циклы всех модулей перед восстановлением.
+
+        Returns:
+            tuple[list[str], list[dict]]: остановленные модули и список сбоев
+        """
         stopped = []
+        failed = []
         for name, info in plugins.items():
             plugin = info["instance"]
             if 'cycle' not in getattr(plugin, 'actions', []):
                 continue
-            if plugin.is_alive():
-                try:
-                    self.logger.info("Stopping cycle for plugin '%s' before restore", name)
-                    plugin.stop_cycle()
-                    stopped.append(name)
-                except Exception as exc:
-                    self.logger.error("Failed to stop cycle for plugin '%s': %s", name, exc)
-        return stopped
+            if not plugin.is_alive():
+                continue
+            try:
+                self.logger.info("Stopping cycle for plugin '%s' before restore", name)
+                plugin.event.set()
+                if plugin.thread:
+                    plugin.thread.join(timeout=timeout)
+                    if plugin.thread.is_alive():
+                        self.logger.warning(
+                            "Cycle for plugin '%s' did not stop within %ss",
+                            name,
+                            timeout,
+                        )
+                        failed.append({
+                            'name': name,
+                            'reason': 'timeout',
+                            'detail': _('did not stop within %(timeout)s seconds') % {'timeout': timeout},
+                        })
+                        continue
+                    plugin.thread = None
+                stopped.append(name)
+            except Exception as exc:
+                self.logger.error("Failed to stop cycle for plugin '%s': %s", name, exc)
+                failed.append({
+                    'name': name,
+                    'reason': 'error',
+                    'detail': str(exc),
+                })
+        return stopped, failed
 
     def _resume_cycles(self, plugin_names):
         """Возвращаем в исходное состояние циклы после восстановления"""
