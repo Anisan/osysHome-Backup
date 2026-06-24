@@ -67,27 +67,60 @@ class SQLiteHandler:
         if os.path.exists(backup_file):
             os.remove(backup_file)
 
-        try:
-            # Используем SQLite backup API, которое корректно делает "снимок" даже в WAL-режиме.
-            # Источник читаем только в режиме ro, чтобы не зависеть от блокировок записи.
-            src_conn = sqlite3.connect(
-                self._to_sqlite_uri(self.db_path, mode='ro'),
-                uri=True,
-                timeout=10,
-            )
+        # Два прохода:
+        # 1) обычный ro-снимок;
+        # 2) после освобождения соединений + checkpoint WAL.
+        last_exc = None
+        for attempt in (1, 2):
             try:
-                dst_conn = sqlite3.connect(backup_file, timeout=10)
+                if attempt == 2:
+                    _release_app_sqlite_connections()
+                    time.sleep(0.3)
+
+                src_mode = 'ro' if attempt == 1 else 'rw'
+                src_conn = sqlite3.connect(
+                    self._to_sqlite_uri(self.db_path, mode=src_mode),
+                    uri=True,
+                    timeout=30,
+                )
                 try:
-                    src_conn.backup(dst_conn)
-                    dst_conn.commit()
+                    if attempt == 2:
+                        try:
+                            src_conn.execute("PRAGMA wal_checkpoint(FULL)")
+                        except Exception:
+                            pass
+
+                    dst_conn = sqlite3.connect(backup_file, timeout=30)
+                    try:
+                        src_conn.backup(dst_conn)
+                        dst_conn.commit()
+                    finally:
+                        dst_conn.close()
                 finally:
-                    dst_conn.close()
-            finally:
-                src_conn.close()
-        except Exception as exc:
+                    src_conn.close()
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if self.logger:
+                    self.logger.warning(
+                        "SQLiteHandler: backup attempt %s failed for %s -> %s: %s",
+                        attempt,
+                        self.db_path,
+                        backup_file,
+                        exc,
+                    )
+
+        if last_exc is not None:
             if self.logger:
-                self.logger.error("SQLiteHandler: failed to create backup via sqlite3.backup: %s", exc)
-            raise
+                self.logger.error(
+                    "SQLiteHandler: failed to create backup via sqlite3.backup "
+                    "(db=%s, out=%s): %s",
+                    self.db_path,
+                    backup_file,
+                    last_exc,
+                )
+            raise last_exc
 
         if self.logger:
             self.logger.debug("SQLiteHandler: backup created at %s", backup_file)
@@ -150,7 +183,16 @@ class SQLiteHandler:
                         self.db_path,
                         exc,
                     )
-                self._restore_db_in_place(tmp_db_path)
+                try:
+                    self._restore_db_in_place(tmp_db_path)
+                except Exception as inplace_exc:
+                    if self.logger:
+                        self.logger.warning(
+                            "SQLiteHandler: in-place restore failed (%s), "
+                            "fallback to file copy",
+                            inplace_exc,
+                        )
+                    self._restore_db_by_copy(tmp_db_path)
                 try:
                     os.remove(tmp_db_path)
                 except OSError:
@@ -199,3 +241,14 @@ class SQLiteHandler:
                 dst_conn.close()
         finally:
             src_conn.close()
+
+    def _restore_db_by_copy(self, source_db_path):
+        """Последний fallback: перезаписать файл БД байт-в-байт."""
+        with open(source_db_path, 'rb') as src, open(self.db_path, 'wb') as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+            dst.flush()
+            os.fsync(dst.fileno())
