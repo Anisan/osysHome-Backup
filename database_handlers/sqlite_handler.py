@@ -1,3 +1,4 @@
+import errno
 import os
 import time
 
@@ -99,21 +100,9 @@ class SQLiteHandler:
         if not os.path.exists(backup_file):
             return False
 
-        # Убедимся, что папка БД существует.
         db_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
         os.makedirs(db_dir, exist_ok=True)
 
-        # Чтобы не смешать WAL от текущего состояния с восстановленным main-db,
-        # сначала удаляем имеющиеся wal/shm (если они есть).
-        for path in self._wal_paths().values():
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except Exception as exc:
-                if self.logger:
-                    self.logger.warning("SQLiteHandler: failed to remove %s: %s", path, exc)
-
-        # Восстанавливаем во временный файл (в той же директории), затем делаем атомарную замену.
         tmp_db_path = self.db_path + ".restore_tmp"
         if os.path.exists(tmp_db_path):
             os.remove(tmp_db_path)
@@ -122,10 +111,10 @@ class SQLiteHandler:
             src_conn = sqlite3.connect(
                 self._to_sqlite_uri(backup_file, mode='ro'),
                 uri=True,
-                timeout=10,
+                timeout=30,
             )
             try:
-                dst_conn = sqlite3.connect(tmp_db_path, timeout=10)
+                dst_conn = sqlite3.connect(tmp_db_path, timeout=30)
                 try:
                     src_conn.backup(dst_conn)
                     dst_conn.commit()
@@ -134,31 +123,79 @@ class SQLiteHandler:
             finally:
                 src_conn.close()
 
-            # Закрываем пул соединений приложения, иначе os.replace получит EBUSY.
             _release_app_sqlite_connections()
-            time.sleep(0.2)
+            time.sleep(0.5)
 
-            # Атомарно заменяем основной файл БД.
-            os.replace(tmp_db_path, self.db_path)
-        except Exception as exc:
-            # На случай ошибки удалим временный файл.
-            try:
-                if os.path.exists(tmp_db_path):
-                    os.remove(tmp_db_path)
-            except Exception:
-                pass
-            if self.logger:
-                self.logger.error("SQLiteHandler: failed to restore backup via sqlite3.backup: %s", exc)
-            raise
-        finally:
-            # На всякий случай ещё раз подчистим WAL/SHM.
             for path in self._wal_paths().values():
                 try:
                     if os.path.exists(path):
                         os.remove(path)
-                except Exception:
+                except OSError as exc:
+                    if self.logger:
+                        self.logger.warning(
+                            "SQLiteHandler: failed to remove %s: %s",
+                            path,
+                            exc,
+                        )
+
+            try:
+                os.replace(tmp_db_path, self.db_path)
+            except OSError as exc:
+                busy = exc.errno in {errno.EBUSY, errno.EPERM}
+                if not busy and getattr(exc, "winerror", None) not in {32, 33}:
+                    raise
+                if self.logger:
+                    self.logger.info(
+                        "SQLiteHandler: cannot replace %s (%s), restoring in place",
+                        self.db_path,
+                        exc,
+                    )
+                self._restore_db_in_place(tmp_db_path)
+                try:
+                    os.remove(tmp_db_path)
+                except OSError:
+                    pass
+        except Exception as exc:
+            try:
+                if os.path.exists(tmp_db_path):
+                    os.remove(tmp_db_path)
+            except OSError:
+                pass
+            if self.logger:
+                self.logger.error(
+                    "SQLiteHandler: failed to restore backup via sqlite3.backup: %s",
+                    exc,
+                )
+            raise
+        finally:
+            for path in self._wal_paths().values():
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except OSError:
                     pass
 
         if self.logger:
             self.logger.debug("SQLiteHandler: restored from %s", backup_file)
         return True
+
+    def _restore_db_in_place(self, source_db_path):
+        """Записать БД в существующий файл (для Docker bind-mount и занятых файлов)."""
+        src_conn = sqlite3.connect(
+            self._to_sqlite_uri(source_db_path, mode='ro'),
+            uri=True,
+            timeout=30,
+        )
+        try:
+            dst_conn = sqlite3.connect(
+                self._to_sqlite_uri(self.db_path, mode='rw'),
+                uri=True,
+                timeout=30,
+            )
+            try:
+                src_conn.backup(dst_conn)
+                dst_conn.commit()
+            finally:
+                dst_conn.close()
+        finally:
+            src_conn.close()

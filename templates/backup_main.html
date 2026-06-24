@@ -1182,11 +1182,15 @@ $(document).ready(function() {
     }
     
     function showError(errorMessage) {
-        $('#backupStatusMessage').html('<p class="mb-0 text-danger">{{ _("Backup creation failed") }}</p>');
+        $('#backupStatusMessage').html(
+            '<div class="alert alert-danger mb-0" role="alert">' +
+            '<i class="fas fa-exclamation-circle"></i> ' + errorMessage +
+            '</div>'
+        );
         $('#backupErrorMessage').removeClass('d-none').html(
             '<i class="fas fa-exclamation-circle"></i> ' + errorMessage
         );
-        addLogEntry(0, '✗ {{ _("Error") }}: ' + errorMessage);
+        addLogEntry(0, '✗ ' + errorMessage);
         $('#backupModalFooter').show();
     }
     

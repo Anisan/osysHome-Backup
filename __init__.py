@@ -315,6 +315,12 @@ class Backup(BasePlugin):
                 return
             
             try:
+                if restore_options.get('database'):
+                    from plugins.Backup.database_handlers.sqlite_handler import (
+                        _release_app_sqlite_connections,
+                    )
+                    _release_app_sqlite_connections()
+
                 self.backup_manager.restore_backup(
                     backup_name=backup_name,
                     progress_callback=progress_callback,
