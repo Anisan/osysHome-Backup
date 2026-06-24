@@ -279,8 +279,8 @@
                         </div>
                         <div class="card-footer bg-transparent border-top-0 pt-0 pb-3 px-3">
                             <div class="backup-item-actions d-flex flex-nowrap gap-2 w-100" role="group" aria-label="{{ _('Backup actions') }}">
-                                <button type="button" class="btn btn-sm btn-success flex-fill"
-                                        onclick="restoreBackup('{{ backup.name }}')"
+                                <button type="button" class="btn btn-sm btn-success flex-fill restore-backup-btn"
+                                        data-backup-name="{{ backup.name|e }}"
                                         title="{{ _('Restore') }}">
                                     <i class="fas fa-undo"></i>
                                     <span class="btn-label">{{ _('Restore') }}</span>
@@ -555,6 +555,30 @@
     </div>
 </div>
 
+<!-- Modal для выбора компонентов восстановления -->
+<div class="modal fade" id="restoreBackupModal" tabindex="-1" role="dialog" aria-labelledby="restoreBackupModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="restoreBackupModalLabel">{{ _('Restore Backup') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">{{ _('Select components to restore. Only components available in the backup are listed below.') }}</p>
+                <p class="mb-3"><strong id="restoreBackupName"></strong></p>
+                <div id="restoreOptionsContainer"></div>
+                <div id="restoreOptionsError" class="alert alert-danger d-none mt-3" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                <button type="button" class="btn btn-success" id="confirmRestoreBtn">
+                    <i class="fas fa-undo"></i> {{ _('Restore selected') }}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal для отображения процесса создания/восстановления резервной копии -->
 <div class="modal fade" id="backupProgressModal" tabindex="-1" role="dialog" aria-labelledby="backupProgressModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered modal-xl" role="document">
@@ -594,11 +618,131 @@
 
 {% block javascripts %}
 {{ super() }}
+<script id="backup-catalog-json" type="application/json">{{ backups|tojson }}</script>
 <script>
 $(document).ready(function() {
     const modal = new bootstrap.Modal(document.getElementById('backupProgressModal'));
+    const restoreModal = new bootstrap.Modal(document.getElementById('restoreBackupModal'));
     let currentBackupName = null;
     let backupComplete = false;
+    let pendingRestoreBackup = null;
+    let backupCatalog = [];
+
+    try {
+        backupCatalog = JSON.parse(document.getElementById('backup-catalog-json').textContent || '[]');
+    } catch (error) {
+        console.error('Failed to parse backup catalog:', error);
+    }
+
+    function findBackupByName(name) {
+        return backupCatalog.find(function(backup) {
+            return backup.name === name;
+        });
+    }
+
+    const restoreComponentDefs = {{ [
+        {"key": "database", "label": _("Include database"), "icon": "fa-database"},
+        {"key": "cache", "label": _("Include cache"), "icon": "fa-memory"},
+        {"key": "config", "label": _("Include config files (config.yaml)"), "icon": "fa-cog"},
+        {"key": "plugins", "label": _("Include plugins directory"), "icon": "fa-puzzle-piece"},
+        {"key": "app_core", "label": _("Include app core"), "icon": "fa-code"},
+        {"key": "venv", "label": _("Include virtual environment (venv)"), "icon": "fa-terminal"},
+        {"key": "user_files", "label": _("Include user files (FILES_DIR)"), "icon": "fa-folder"},
+    ]|tojson }};
+
+    function getBackupComponents(backup) {
+        const resources = (backup.backup_resources || [])
+            .map(function(resource) { return resource.alias; })
+            .filter(Boolean);
+
+        return {
+            database: backup.includes_database !== false,
+            cache: !!backup.includes_cache,
+            config: !!backup.includes_files,
+            plugins: resources.indexOf('plugins') !== -1,
+            app_core: resources.indexOf('app') !== -1,
+            venv: resources.indexOf('venv') !== -1,
+            user_files: !!backup.includes_user_files,
+        };
+    }
+
+    function buildRestoreOptions(backup) {
+        const available = getBackupComponents(backup);
+        const $container = $('#restoreOptionsContainer');
+        $container.empty();
+
+        let hasOptions = false;
+        restoreComponentDefs.forEach(function(component) {
+            if (!available[component.key]) {
+                return;
+            }
+            hasOptions = true;
+            const inputId = 'restore_' + component.key;
+            $container.append(
+                '<div class="form-check mb-2">' +
+                    '<input type="checkbox" class="form-check-input restore-option" ' +
+                        'id="' + inputId + '" data-key="' + component.key + '" checked>' +
+                    '<label class="form-check-label" for="' + inputId + '">' +
+                        '<i class="fas ' + component.icon + '"></i> ' + component.label +
+                    '</label>' +
+                '</div>'
+            );
+        });
+
+        if (!hasOptions) {
+            $container.append(
+                '<div class="alert alert-warning mb-0">' +
+                    '{{ _("This backup does not contain restorable components.") }}' +
+                '</div>'
+            );
+            $('#confirmRestoreBtn').prop('disabled', true);
+        } else {
+            $('#confirmRestoreBtn').prop('disabled', false);
+        }
+    }
+
+    function collectRestoreOptions() {
+        const options = {};
+        $('.restore-option').each(function() {
+            options[$(this).data('key')] = $(this).is(':checked');
+        });
+        return options;
+    }
+
+    $(document).on('click', '.restore-backup-btn', function() {
+        const backupName = $(this).attr('data-backup-name');
+        const backup = findBackupByName(backupName);
+        if (!backup) {
+            alert('{{ _("Backup not found") }}: ' + backupName);
+            return;
+        }
+        pendingRestoreBackup = backup;
+        $('#restoreBackupName').text(backup.name || '');
+        $('#restoreOptionsError').addClass('d-none').text('');
+        buildRestoreOptions(backup);
+        restoreModal.show();
+    });
+
+    $('#confirmRestoreBtn').on('click', function() {
+        if (!pendingRestoreBackup) {
+            return;
+        }
+
+        const restoreOptions = collectRestoreOptions();
+        const hasSelection = Object.keys(restoreOptions).some(function(key) {
+            return restoreOptions[key];
+        });
+
+        if (!hasSelection) {
+            $('#restoreOptionsError')
+                .removeClass('d-none')
+                .text('{{ _("At least one component must be selected") }}');
+            return;
+        }
+
+        restoreModal.hide();
+        startRestore(pendingRestoreBackup.name, restoreOptions);
+    });
     
     // Управление автоматическим резервным копированием
     $('#autoBackupEnabled').on('change', function() {
@@ -927,11 +1071,7 @@ $(document).ready(function() {
     };
     
     // Функция для восстановления резервной копии
-    window.restoreBackup = function(backupName) {
-        if (!confirm('{{ _("Are you sure you want to restore from this backup? This will replace current data.") }}')) {
-            return;
-        }
-        
+    function startRestore(backupName, restoreOptions) {
         currentBackupName = backupName;
         backupComplete = false;
         
@@ -944,14 +1084,22 @@ $(document).ready(function() {
         // Открываем модальное окно
         modal.show();
         
+        const formData = {
+            action: 'restore_backup',
+            backup_name: backupName,
+        };
+
+        Object.keys(restoreOptions || {}).forEach(function(key) {
+            if (restoreOptions[key]) {
+                formData['restore_' + key] = 'on';
+            }
+        });
+        
         // Отправляем AJAX запрос
         $.ajax({
             url: window.location.pathname,
             method: 'POST',
-            data: {
-                action: 'restore_backup',
-                backup_name: backupName
-            },
+            data: formData,
             success: function(response) {
                 if (response.success && response.started) {
                     // Процесс запущен, ждем сообщения через WebSocket
@@ -972,7 +1120,7 @@ $(document).ready(function() {
                 showError(errorMessage);
             }
         });
-    };
+    }
     
     function resetModal() {
         $('#backupProgressBar').css('width', '0%').attr('aria-valuenow', 0);

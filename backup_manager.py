@@ -426,13 +426,14 @@ class BackupManager:
                 return os.path.abspath(candidate)
         return None  
           
-    def restore_backup(self, backup_name, progress_callback=None):  
+    def restore_backup(self, backup_name, progress_callback=None, restore_options=None):
         """Восстановление из резервной копии
-        
+
         Args:
             backup_name: Имя резервной копии
             progress_callback: Функция для отправки прогресса (progress, message)
-        """  
+            restore_options: Выбранные пользователем компоненты для восстановления
+        """
         self.logger.info(
             "BackupManager: requested restore for backup '%s' (encrypted=%s)",
             backup_name,
@@ -505,12 +506,30 @@ class BackupManager:
             metadata.get('includes_files'),
             metadata.get('database_type'),
         )
+
+        available = self._available_restore_components(metadata)
+        if restore_options is None:
+            restore_options = {key: available[key] for key in available if available[key]}
+        else:
+            selected = {
+                key: bool(restore_options.get(key)) and available.get(key, False)
+                for key in available
+            }
+            if not any(selected.values()):
+                raise ValueError(_('At least one component must be selected'))
+            restore_options = selected
+
+        self.logger.info(
+            "BackupManager: restore components for '%s': %s",
+            backup_name,
+            {key: value for key, value in restore_options.items() if value},
+        )
         
         if progress_callback:
             progress_callback(30, _('Metadata loaded'))
               
         # Восстановление базы данных  
-        if metadata.get('includes_database', True):  # По умолчанию True для совместимости со старыми бэкапами
+        if restore_options.get('database'):
             if progress_callback:
                 progress_callback(35, _('Restoring database...'))
             db_backup_path = os.path.join(backup_path, 'database')
@@ -526,7 +545,7 @@ class BackupManager:
             self.logger.debug("BackupManager: metadata indicates no database, skipping restore step")
         
         # Восстановление кеша
-        if metadata.get('includes_cache', False):
+        if restore_options.get('cache'):
             if progress_callback:
                 progress_callback(62, _('Restoring cache...'))
             cache_backup_path = os.path.join(backup_path, 'cache')
@@ -541,10 +560,15 @@ class BackupManager:
             self.logger.debug("BackupManager: metadata indicates no cache, skipping restore step")
           
         # Восстановление файлов системы  
-        if metadata.get('includes_files', False):  
+        if any(restore_options.get(key) for key in ('config', 'plugins', 'app_core', 'venv')):
             if progress_callback:
                 progress_callback(65, _('Restoring system files...'))
-            self._restore_system_files(backup_path, progress_callback, metadata)
+            self._restore_system_files(
+                backup_path,
+                progress_callback,
+                metadata,
+                restore_options=restore_options,
+            )
             self.logger.debug("BackupManager: system files restore completed")
         else:
             if progress_callback:
@@ -552,7 +576,7 @@ class BackupManager:
             self.logger.debug("BackupManager: metadata indicates no system files, skipping restore step")
 
         # Восстановление пользовательских файлов (отдельно от системных)
-        if metadata.get('includes_user_files', False):
+        if restore_options.get('user_files'):
             if progress_callback:
                 progress_callback(77, _('Restoring user files...'))
             self._restore_user_files(backup_path, progress_callback)
@@ -587,7 +611,25 @@ class BackupManager:
               
         return True
           
-    def _restore_system_files(self, backup_path, progress_callback=None, metadata=None):  
+    @staticmethod
+    def _available_restore_components(metadata):
+        """Какие компоненты доступны для восстановления из метаданных бэкапа."""
+        resources = {
+            entry.get('alias')
+            for entry in metadata.get('backup_resources', [])
+            if entry.get('alias')
+        }
+        return {
+            'database': metadata.get('includes_database', True),
+            'cache': bool(metadata.get('includes_cache', False)),
+            'config': bool(metadata.get('includes_files', False)),
+            'plugins': 'plugins' in resources,
+            'app_core': 'app' in resources,
+            'venv': 'venv' in resources,
+            'user_files': bool(metadata.get('includes_user_files', False)),
+        }
+
+    def _restore_system_files(self, backup_path, progress_callback=None, metadata=None, restore_options=None):
         """Восстановление системных файлов"""  
         files_backup_path = os.path.join(backup_path, 'files')
         self.logger.debug("BackupManager: restoring system files from %s", files_backup_path)
@@ -625,13 +667,23 @@ class BackupManager:
                 'app': _('Restoring app core...'),
                 'venv': _('Restoring virtual environment...'),
             }
+            directory_option_map = {
+                'plugins': 'plugins',
+                'app': 'app_core',
+                'venv': 'venv',
+            }
 
             # Восстановление конфигурационных файлов и директорий  
             for item in os.listdir(files_backup_path):  
                 item_path = os.path.join(files_backup_path, item)  
-                if os.path.isfile(item_path) and item.endswith('.yaml'):  
+                if os.path.isfile(item_path) and item.endswith('.yaml'):
+                    if restore_options and not restore_options.get('config', False):
+                        continue
                     shutil.copy2(item_path, item)  
-                elif os.path.isdir(item_path):  
+                elif os.path.isdir(item_path):
+                    option_key = directory_option_map.get(item)
+                    if option_key and restore_options and not restore_options.get(option_key, False):
+                        continue
                     target_path = resource_map.get(item) or item
                     if progress_callback:
                         progress_callback(
@@ -686,34 +738,22 @@ class BackupManager:
         if not os.path.exists(cache_backup_path):
             self.logger.warning("BackupManager: cache backup path %s not found, skipping", cache_backup_path)
             return
-        
+
+        if not os.path.isdir(cache_backup_path):
+            self.logger.warning("BackupManager: cache backup path %s is not a directory", cache_backup_path)
+            return
+
         cache_path = self.config.get(
             'cache_directory',
             getattr(Config, 'CACHE_FILE_PATH', os.path.join(Config.APP_DIR, 'cache')),
         )
-        normalized_destination = os.path.abspath(cache_path)
-        
         try:
-            # Проверяем, является ли cache_backup_path директорией с содержимым
-            if os.path.isdir(cache_backup_path):
-                # Если это директория, восстанавливаем её полностью
-                if os.path.exists(normalized_destination):
-                    shutil.rmtree(normalized_destination)
-                shutil.copytree(cache_backup_path, normalized_destination)
-            else:
-                self.logger.warning("BackupManager: cache backup path %s is not a directory", cache_backup_path)
-                return
-            
-            self.logger.debug(
-                "BackupManager: cache restored from %s to %s",
-                cache_backup_path,
-                normalized_destination,
-            )
+            self._restore_into_directory(cache_backup_path, cache_path)
         except Exception as exc:
             self.logger.error(
                 "BackupManager: failed to restore cache from %s to %s: %s",
                 cache_backup_path,
-                normalized_destination,
+                os.path.abspath(cache_path),
                 exc,
             )
             raise
@@ -779,17 +819,7 @@ class BackupManager:
     def _restore_directory(self, source_path, destination_path):
         """Восстановление директории в целевой путь."""
         try:
-            normalized_destination = os.path.abspath(destination_path)
-            if os.path.exists(normalized_destination):
-                shutil.rmtree(normalized_destination)
-            destination_parent = os.path.dirname(normalized_destination) or "."
-            os.makedirs(destination_parent, exist_ok=True)
-            shutil.copytree(source_path, normalized_destination)
-            self.logger.debug(
-                "BackupManager: restored directory %s -> %s",
-                source_path,
-                normalized_destination,
-            )
+            self._restore_into_directory(source_path, destination_path)
         except Exception as exc:
             self.logger.error(
                 "BackupManager: failed to restore directory %s -> %s (%s)",
@@ -797,3 +827,26 @@ class BackupManager:
                 destination_path,
                 exc,
             )
+            raise
+
+    @staticmethod
+    def _clear_directory_contents(directory_path):
+        """Удалить содержимое каталога, не удаляя сам каталог (важно для Docker volume)."""
+        for entry in os.scandir(directory_path):
+            entry_path = entry.path
+            if entry.is_dir(follow_symlinks=False):
+                shutil.rmtree(entry_path)
+            else:
+                os.unlink(entry_path)
+
+    def _restore_into_directory(self, source_path, destination_path):
+        """Восстановить содержимое source в существующий каталог назначения."""
+        normalized_destination = os.path.abspath(destination_path)
+        os.makedirs(normalized_destination, exist_ok=True)
+        self._clear_directory_contents(normalized_destination)
+        shutil.copytree(source_path, normalized_destination, dirs_exist_ok=True)
+        self.logger.debug(
+            "BackupManager: restored directory %s -> %s",
+            source_path,
+            normalized_destination,
+        )

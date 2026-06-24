@@ -272,7 +272,14 @@ class Backup(BasePlugin):
     
     def _restore_backup(self, request):  
         """Восстановление из резервной копии через веб-интерфейс"""  
-        backup_name = request.form.get('backup_name')  
+        backup_name = request.form.get('backup_name')
+        restore_options = self._parse_restore_options(request)
+
+        if not any(restore_options.values()):
+            return jsonify({
+                'success': False,
+                'error': _('At least one component must be selected'),
+            }), 400
         
         # Запускаем восстановление в отдельном потоке
         def restore_thread():
@@ -308,7 +315,8 @@ class Backup(BasePlugin):
             try:
                 self.backup_manager.restore_backup(
                     backup_name=backup_name,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    restore_options=restore_options,
                 )
                 
                 # Отправляем финальное сообщение об успехе
@@ -544,6 +552,18 @@ class Backup(BasePlugin):
                 
         except Exception as e:
             self.logger.error("Error setting up auto backup task: %s", e)
+
+    @staticmethod
+    def _parse_restore_options(request):
+        return {
+            'database': bool(request.form.get('restore_database')),
+            'cache': bool(request.form.get('restore_cache')),
+            'config': bool(request.form.get('restore_config')),
+            'plugins': bool(request.form.get('restore_plugins')),
+            'app_core': bool(request.form.get('restore_app_core')),
+            'venv': bool(request.form.get('restore_venv')),
+            'user_files': bool(request.form.get('restore_user_files')),
+        }
 
     def _stop_all_cycles(self, timeout=30):
         """Останавливаем циклы всех модулей перед восстановлением.
