@@ -107,6 +107,8 @@ class Backup(BasePlugin):
                 return self._get_auto_backup_settings()
             elif action == 'save_storage_settings':
                 return self._save_storage_settings(request)
+            elif action == 'get_backup_metadata':
+                return self._get_backup_metadata(request)
                   
         # Получение списка резервных копий  
         backups = self.backup_manager.list_backups()  
@@ -412,6 +414,22 @@ class Backup(BasePlugin):
             
             # Сохраняем файл
             file.save(backup_path)
+
+            try:
+                metadata = self.backup_manager.get_backup_metadata(filename)
+                if metadata:
+                    self.logger.info(
+                        "Backup upload: metadata loaded for %s (database=%s, cache=%s)",
+                        filename,
+                        metadata.get('includes_database'),
+                        metadata.get('includes_cache'),
+                    )
+            except Exception as exc:
+                self.logger.warning(
+                    "Backup upload: could not read metadata for %s: %s",
+                    filename,
+                    exc,
+                )
             
             self.logger.info("Backup uploaded successfully: %s", filename)
             return jsonify({
@@ -564,6 +582,30 @@ class Backup(BasePlugin):
             'venv': bool(request.form.get('restore_venv')),
             'user_files': bool(request.form.get('restore_user_files')),
         }
+
+    def _get_backup_metadata(self, request):
+        """Получить состав резервной копии для диалога восстановления."""
+        backup_name = (request.form.get('backup_name') or request.args.get('backup_name') or '').strip()
+        if not backup_name:
+            return jsonify({'success': False, 'error': _('Backup not found')}), 400
+        try:
+            metadata = self.backup_manager.get_backup_metadata(backup_name)
+            if not metadata:
+                return jsonify({
+                    'success': False,
+                    'error': _('Backup metadata not found'),
+                }), 404
+            components = self.backup_manager.get_restore_components(metadata)
+            return jsonify({
+                'success': True,
+                'metadata': metadata,
+                'components': components,
+            })
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        except Exception as exc:
+            self.logger.error("Error reading backup metadata: %s", exc)
+            return jsonify({'success': False, 'error': str(exc)}), 500
 
     def _stop_all_cycles(self, timeout=30):
         """Останавливаем циклы всех модулей перед восстановлением.

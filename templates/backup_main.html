@@ -566,7 +566,11 @@
             <div class="modal-body">
                 <p class="text-muted mb-3">{{ _('Select components to restore. Only components available in the backup are listed below.') }}</p>
                 <p class="mb-3"><strong id="restoreBackupName"></strong></p>
-                <div id="restoreOptionsContainer"></div>
+                <div id="restoreOptionsContainer">
+                    <div id="restoreOptionsLoading" class="text-center py-3 text-muted">
+                        <i class="fas fa-spinner fa-spin"></i> {{ _('Reading backup metadata...') }}
+                    </div>
+                </div>
                 <div id="restoreOptionsError" class="alert alert-danger d-none mt-3" role="alert"></div>
             </div>
             <div class="modal-footer">
@@ -618,7 +622,6 @@
 
 {% block javascripts %}
 {{ super() }}
-<script id="backup-catalog-json" type="application/json">{{ backups|tojson }}</script>
 <script>
 $(document).ready(function() {
     const modal = new bootstrap.Modal(document.getElementById('backupProgressModal'));
@@ -626,19 +629,6 @@ $(document).ready(function() {
     let currentBackupName = null;
     let backupComplete = false;
     let pendingRestoreBackup = null;
-    let backupCatalog = [];
-
-    try {
-        backupCatalog = JSON.parse(document.getElementById('backup-catalog-json').textContent || '[]');
-    } catch (error) {
-        console.error('Failed to parse backup catalog:', error);
-    }
-
-    function findBackupByName(name) {
-        return backupCatalog.find(function(backup) {
-            return backup.name === name;
-        });
-    }
 
     const restoreComponentDefs = {{ [
         {"key": "database", "label": _("Include database"), "icon": "fa-database"},
@@ -650,24 +640,7 @@ $(document).ready(function() {
         {"key": "user_files", "label": _("Include user files (FILES_DIR)"), "icon": "fa-folder"},
     ]|tojson }};
 
-    function getBackupComponents(backup) {
-        const resources = (backup.backup_resources || [])
-            .map(function(resource) { return resource.alias; })
-            .filter(Boolean);
-
-        return {
-            database: backup.includes_database !== false,
-            cache: !!backup.includes_cache,
-            config: !!backup.includes_files,
-            plugins: resources.indexOf('plugins') !== -1,
-            app_core: resources.indexOf('app') !== -1,
-            venv: resources.indexOf('venv') !== -1,
-            user_files: !!backup.includes_user_files,
-        };
-    }
-
-    function buildRestoreOptions(backup) {
-        const available = getBackupComponents(backup);
+    function buildRestoreOptions(available) {
         const $container = $('#restoreOptionsContainer');
         $container.empty();
 
@@ -701,6 +674,26 @@ $(document).ready(function() {
         }
     }
 
+    function showRestoreOptionsLoading() {
+        $('#restoreOptionsContainer').html(
+            '<div class="text-center py-3 text-muted">' +
+                '<i class="fas fa-spinner fa-spin"></i> {{ _("Reading backup metadata...") }}' +
+            '</div>'
+        );
+        $('#confirmRestoreBtn').prop('disabled', true);
+    }
+
+    function loadBackupMetadata(backupName) {
+        return $.ajax({
+            url: window.location.pathname,
+            method: 'POST',
+            data: {
+                action: 'get_backup_metadata',
+                backup_name: backupName,
+            },
+        });
+    }
+
     function collectRestoreOptions() {
         const options = {};
         $('.restore-option').each(function() {
@@ -711,16 +704,36 @@ $(document).ready(function() {
 
     $(document).on('click', '.restore-backup-btn', function() {
         const backupName = $(this).attr('data-backup-name');
-        const backup = findBackupByName(backupName);
-        if (!backup) {
-            alert('{{ _("Backup not found") }}: ' + backupName);
-            return;
-        }
-        pendingRestoreBackup = backup;
-        $('#restoreBackupName').text(backup.name || '');
+        pendingRestoreBackup = { name: backupName };
+        $('#restoreBackupName').text(backupName || '');
         $('#restoreOptionsError').addClass('d-none').text('');
-        buildRestoreOptions(backup);
+        showRestoreOptionsLoading();
         restoreModal.show();
+
+        loadBackupMetadata(backupName)
+            .done(function(response) {
+                if (!response.success) {
+                    $('#restoreOptionsContainer').html(
+                        '<div class="alert alert-danger mb-0">' +
+                            (response.error || '{{ _("Failed to read backup metadata") }}') +
+                        '</div>'
+                    );
+                    $('#confirmRestoreBtn').prop('disabled', true);
+                    return;
+                }
+                pendingRestoreBackup = response.metadata;
+                buildRestoreOptions(response.components || {});
+            })
+            .fail(function(xhr) {
+                let errorMessage = '{{ _("Failed to read backup metadata") }}';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage = xhr.responseJSON.error;
+                }
+                $('#restoreOptionsContainer').html(
+                    '<div class="alert alert-danger mb-0">' + errorMessage + '</div>'
+                );
+                $('#confirmRestoreBtn').prop('disabled', true);
+            });
     });
 
     $('#confirmRestoreBtn').on('click', function() {

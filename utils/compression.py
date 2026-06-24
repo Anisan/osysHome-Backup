@@ -1,7 +1,21 @@
+import json
 import tarfile  
 import os  
 import shutil  
-  
+
+def read_metadata_from_archive(archive_path):
+    """Прочитать metadata.json из tar.gz без полной распаковки."""
+    with tarfile.open(archive_path, 'r:gz') as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            parts = member.name.replace('\\', '/').split('/')
+            if len(parts) == 2 and parts[1] == 'metadata.json':
+                fileobj = tar.extractfile(member)
+                if fileobj:
+                    return json.load(fileobj)
+    return None
+
 def compress_backup(backup_path):  
     """Сжатие резервной копии в tar.gz архив"""  
     archive_path = f"{backup_path}.tar.gz"  

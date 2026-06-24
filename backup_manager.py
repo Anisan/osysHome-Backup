@@ -7,8 +7,8 @@ from app.configuration import Config
 from app.core.lib.object import setProperty
 from .database_handlers import get_database_handler
 from .storage import get_storage_handler
-from .utils.compression import compress_backup, decompress_backup
-from .utils.encryption import encrypt_backup, decrypt_backup
+from .utils.compression import compress_backup, decompress_backup, read_metadata_from_archive
+from .utils.encryption import encrypt_backup, decrypt_backup, BackupEncryption
 
 class BackupManager:
     def __init__(self, config, logger=None):
@@ -426,6 +426,100 @@ class BackupManager:
                 return os.path.abspath(candidate)
         return None  
           
+    def get_restore_components(self, metadata):
+        """Публичный доступ к списку компонентов для восстановления."""
+        return self._available_restore_components(metadata)
+
+    def get_backup_metadata(self, backup_name):
+        """Получить metadata.json для каталога или архива (без полной распаковки)."""
+        backup_dir = self.config.get('backup_directory', 'backups')
+        backup_path = os.path.join(backup_dir, backup_name)
+        if not os.path.exists(backup_path):
+            return None
+
+        if os.path.isdir(backup_path):
+            metadata_file = os.path.join(backup_path, 'metadata.json')
+            if not os.path.exists(metadata_file):
+                return None
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            metadata['name'] = backup_name
+            metadata['type'] = 'directory'
+            return metadata
+
+        metadata = self._load_external_metadata(backup_path)
+        if metadata:
+            metadata['name'] = backup_name
+            metadata['type'] = 'archive'
+            return metadata
+
+        temp_archive = None
+        try:
+            if backup_name.endswith('.encrypted.tar.gz'):
+                if not self.config.get('encryption_key'):
+                    raise ValueError(_('Encryption key required for encrypted backup'))
+                temp_archive = self._decrypt_archive_to_temp(backup_path)
+                archive_path = temp_archive
+            else:
+                archive_path = backup_path
+
+            metadata = read_metadata_from_archive(archive_path)
+            if metadata:
+                metadata['name'] = backup_name
+                metadata['type'] = 'archive'
+                self._save_external_metadata(backup_path, metadata)
+            return metadata
+        finally:
+            if temp_archive and os.path.exists(temp_archive):
+                try:
+                    os.remove(temp_archive)
+                except OSError:
+                    pass
+
+    def _load_external_metadata(self, backup_path):
+        external_metadata_path = backup_path + '.metadata.json'
+        if not os.path.exists(external_metadata_path):
+            return None
+        with open(external_metadata_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    def _save_external_metadata(self, backup_path, metadata):
+        external_metadata_path = backup_path + '.metadata.json'
+        try:
+            with open(external_metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            self.logger.debug(
+                "BackupManager: external metadata saved to %s",
+                external_metadata_path,
+            )
+        except OSError as exc:
+            self.logger.warning(
+                "BackupManager: failed to save external metadata: %s",
+                exc,
+            )
+
+    def _decrypt_archive_to_temp(self, encrypted_path):
+        import tempfile
+
+        encryption_key = self.config.get('encryption_key')
+        encryptor = BackupEncryption()
+        has_embedded_salt = isinstance(encryption_key, str)
+        key = encryption_key
+        if has_embedded_salt:
+            with open(encrypted_path, 'rb') as file:
+                salt = file.read(16)
+            key, _ = encryptor.generate_key_from_password(encryption_key, salt)
+
+        fd, temp_path = tempfile.mkstemp(suffix='.tar.gz')
+        os.close(fd)
+        encryptor.decrypt_file(
+            encrypted_path,
+            key,
+            temp_path,
+            has_embedded_salt=has_embedded_salt,
+        )
+        return temp_path
+
     def restore_backup(self, backup_name, progress_callback=None, restore_options=None):
         """Восстановление из резервной копии
 
